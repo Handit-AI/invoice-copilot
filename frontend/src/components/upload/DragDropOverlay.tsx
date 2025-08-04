@@ -5,10 +5,12 @@ import Lottie from 'lottie-react';
 import { Upload, FileText, Check, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import animationData from '@/assets/animations/scanning-document.json';
+import { DocumentUploadProgress } from '@/lib/documentApi';
 
 interface DragDropOverlayProps {
   onFileDrop: (files: File[]) => void;
   isProcessing: boolean;
+  processingProgress?: DocumentUploadProgress | null;
 }
 
 interface ProcessingStep {
@@ -18,7 +20,7 @@ interface ProcessingStep {
   icon: React.ComponentType<{ className?: string }>;
 }
 
-export function DragDropOverlay({ onFileDrop, isProcessing }: DragDropOverlayProps) {
+export function DragDropOverlay({ onFileDrop, isProcessing, processingProgress }: DragDropOverlayProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
@@ -54,36 +56,47 @@ export function DragDropOverlay({ onFileDrop, isProcessing }: DragDropOverlayPro
     setProcessingSteps(steps);
   }, []);
 
+  // Update steps based on real API progress
   useEffect(() => {
     if (isProcessing && files.length > 0) {
       initializeSteps(files.length);
-      setCurrentStep(0);
-
-      // Simulate step progression
-      const stepInterval = setInterval(() => {
-        setCurrentStep(prev => {
-          const nextStep = prev + 1;
-          
-          // Update step statuses
-          setProcessingSteps(steps => 
-            steps.map((step, index) => ({
-              ...step,
-              status: index < nextStep ? 'completed' : 
-                     index === nextStep ? 'processing' : 'pending'
-            }))
-          );
-
-          if (nextStep >= 4) {
-            clearInterval(stepInterval);
-            return nextStep;
-          }
-          return nextStep;
-        });
-      }, 1800); // 1.8 seconds per step
-
-      return () => clearInterval(stepInterval);
     }
   }, [isProcessing, files.length, initializeSteps]);
+
+  // Update step status based on real progress
+  useEffect(() => {
+    if (processingProgress) {
+      const stepMap: Record<string, number> = {
+        'uploading': 0,
+        'processing': 1,
+        'ocr': 2,
+        'vector': 3,
+        'completed': 4,
+        'error': -1
+      };
+
+      const currentStepIndex = stepMap[processingProgress.stage] ?? 0;
+      setCurrentStep(currentStepIndex);
+
+      // Update step statuses based on current progress
+      setProcessingSteps(steps => 
+        steps.map((step, index) => {
+          if (processingProgress.stage === 'error') {
+            return {
+              ...step,
+              status: index === 0 ? 'processing' : 'pending' // Show error on first step
+            };
+          }
+          
+          return {
+            ...step,
+            status: index < currentStepIndex ? 'completed' : 
+                   index === currentStepIndex ? 'processing' : 'pending'
+          };
+        })
+      );
+    }
+  }, [processingProgress]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -178,6 +191,7 @@ export function DragDropOverlay({ onFileDrop, isProcessing }: DragDropOverlayPro
           steps={processingSteps}
           currentFileIndex={0}
           totalFiles={files.length}
+          processingProgress={processingProgress}
         />
       ) : (
         <DragDropView />
@@ -227,20 +241,32 @@ function DragDropView() {
 function ProcessingView({ 
   steps, 
   currentFileIndex, 
-  totalFiles 
+  totalFiles,
+  processingProgress 
 }: {
   steps: ProcessingStep[];
   currentFileIndex: number;
   totalFiles: number;
+  processingProgress?: DocumentUploadProgress | null;
 }) {
-  // Calculate progress based on completed steps + partial progress for current step
-  const completedSteps = steps.filter(step => step.status === 'completed').length;
-  const processingSteps = steps.filter(step => step.status === 'processing').length;
-  const totalSteps = steps.length;
+  // Use real progress from API if available, otherwise calculate based on steps
+  const progress = processingProgress?.progress ?? (() => {
+    const completedSteps = steps.filter(step => step.status === 'completed').length;
+    const processingSteps = steps.filter(step => step.status === 'processing').length;
+    const totalSteps = steps.length;
+    
+    // Add 50% progress for currently processing step
+    const progressValue = completedSteps + (processingSteps > 0 ? 0.5 : 0);
+    return totalSteps > 0 ? (progressValue / totalSteps) * 100 : 0;
+  })();
+
+  // Get current status message
+  const statusMessage = processingProgress?.message ?? 'Processing your documents...';
   
-  // Add 50% progress for currently processing step
-  const progressValue = completedSteps + (processingSteps > 0 ? 0.5 : 0);
-  const progress = totalSteps > 0 ? (progressValue / totalSteps) * 100 : 0;
+  // Determine if there's an error
+  const hasError = processingProgress?.stage === 'error';
+  const completedSteps = steps.filter(step => step.status === 'completed').length;
+  const totalSteps = steps.length;
   return (
     <div className="flex flex-col items-center justify-center space-y-8 p-8 max-w-md">
       {/* Lottie Animation */}
@@ -255,11 +281,20 @@ function ProcessingView({
       
       {/* Processing Title */}
       <div className="text-center space-y-2">
-        <h2 className="text-2xl font-bold text-gray-900">
-          Processing Your Invoices
+        <h2 className={cn(
+          "text-2xl font-bold",
+          hasError ? "text-red-600" : 
+          processingProgress?.stage === 'completed' ? "text-green-600" : "text-gray-900"
+        )}>
+          {hasError ? "Processing Failed" : 
+           processingProgress?.stage === 'completed' ? "Processing Complete!" : 
+           "Processing Your Invoices"}
         </h2>
-        <p className="text-gray-600">
-          Please wait while we analyze your documents...
+        <p className={cn(
+          hasError ? "text-red-500" : 
+          processingProgress?.stage === 'completed' ? "text-green-600" : "text-gray-600"
+        )}>
+          {statusMessage}
         </p>
       </div>
       
@@ -323,12 +358,19 @@ function ProcessingView({
       {/* Progress Indicator */}
       <div className="w-full">
         <div className="flex justify-between text-xs text-gray-500 mb-2">
-          <span>Processing...</span>
-          <span>{completedSteps} / {totalSteps} steps completed</span>
+          <span>
+            {hasError ? "Error occurred" : 
+             processingProgress?.stage === 'completed' ? "Completed!" : "Processing..."}
+          </span>
+          <span>{Math.round(progress)}% complete</span>
         </div>
         <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
           <div 
-            className="h-full bg-blue-500 rounded-full transition-all duration-500 ease-out"
+            className={cn(
+              "h-full rounded-full transition-all duration-500 ease-out",
+              hasError ? "bg-red-500" : 
+              processingProgress?.stage === 'completed' ? "bg-green-500" : "bg-blue-500"
+            )}
             style={{ 
               width: `${progress}%` 
             }}

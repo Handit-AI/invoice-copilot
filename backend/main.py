@@ -496,6 +496,64 @@ async def store_existing_json_in_pinecone(
         logger.error(f"❌ Error storing JSON files in Pinecone: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error storing JSON files: {str(e)}")
 
+# Import the coding agent
+try:
+    from agent import CodingAgent
+    agent_available = True
+    logger.info("✅ Coding agent imported successfully")
+except ImportError as e:
+    agent_available = False
+    logger.warning(f"⚠️ Coding agent not available: {str(e)}")
+
+@app.post("/api/chat/message")
+async def process_chat_message(message: dict):
+    """
+    Process chat messages using the coding agent
+    
+    - **message**: Dictionary containing user message and optional parameters
+    """
+    try:
+        user_message = message.get("message", "")
+        workspace_dir = message.get("workspace_dir", "frontend/src/components/workspace")
+        max_iterations = message.get("max_iterations", 10)
+        
+        if not user_message:
+            raise HTTPException(status_code=400, detail="Message is required")
+        
+        if not agent_available:
+            return {
+                "success": False,
+                "error": "Coding agent not available",
+                "response": "I'm sorry, but the coding agent is not currently available. Please check the backend configuration."
+            }
+        
+        logger.info(f"💬 Processing chat message: {user_message}")
+        logger.info(f"📁 Working directory: {workspace_dir}")
+        
+        # Initialize the coding agent with the workspace directory
+        agent = CodingAgent(working_dir=workspace_dir)
+        
+        # Process the user's message
+        response = agent.process_request(user_message, max_iterations=max_iterations)
+        
+        logger.info(f"✅ Chat processing completed")
+        
+        return {
+            "success": True,
+            "message": user_message,
+            "response": response,
+            "workspace_dir": workspace_dir,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error processing chat message: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "response": f"I encountered an error while processing your request: {str(e)}"
+        }
+
 if __name__ == "__main__":
     import uvicorn
     logger.info("🚀 Starting FastAPI Backend...")

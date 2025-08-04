@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/Card';
 import { LoadingDots } from '@/components/ui/LoadingSpinner';
 import { NextStepsAnimation } from './NextStepsAnimation';
 import { cn, formatDateTime } from '@/lib/utils';
+import { sendChatMessage, createChatMessage } from '@/lib/chatApi';
 
 export function ChatArea() {
   const { state, addMessage, setGenerating, setChart, setWorkspaceContent } = useApp();
@@ -50,7 +51,7 @@ export function ChatArea() {
       type: 'text',
     });
 
-    // Check if this is a request for expenses report
+    // Check if this is a request for expenses report (keep existing special handling)
     const isExpensesRequest = /show me expenses by category for q1/i.test(userMessage.toLowerCase());
 
     // Start generating response
@@ -87,62 +88,52 @@ export function ChatArea() {
         return; // Exit early for expenses report
       }
 
-      // Call backend API to process other chat messages
-      const response = await fetch('http://localhost:8000/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: userMessage
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
+      // Use the new chat API for all other messages
+      const workspaceDir = 'frontend/src/components/workspace';
+      const result = await sendChatMessage(userMessage, workspaceDir);
       
-      // Check if TSX was generated and dynamic content should be enabled
-      if (data.success && data.dynamic_content_enabled) {
-        // Enable dynamic workspace content
-        if (typeof window !== 'undefined' && (window as any).setUseDynamicContent) {
-          (window as any).setUseDynamicContent(true);
+      if (result.success) {
+        // Add assistant response
+        addMessage({
+          content: result.response,
+          role: 'assistant',
+          type: 'text',
+          metadata: {
+            workspace_dir: result.workspace_dir,
+            timestamp: result.timestamp
+          }
+        });
+        
+        // Check if the response indicates workspace content should be updated
+        const workspaceKeywords = /\b(workspace|component|file|created|modified|updated|generated)\b/i;
+        if (workspaceKeywords.test(result.response)) {
+          // Enable dynamic workspace if it seems like files were modified
+          if (typeof window !== 'undefined' && (window as any).setUseDynamicContent) {
+            (window as any).setUseDynamicContent(true);
+          }
         }
+      } else {
+        // Handle error response
+        addMessage({
+          content: result.response || 'Sorry, I encountered an error processing your request.',
+          role: 'assistant',
+          type: 'text',
+          metadata: {
+            error: result.error,
+            workspace_dir: result.workspace_dir
+          }
+        });
       }
-      
-      // Add assistant response
-      addMessage({
-        content: data.response,
-        role: 'assistant',
-        type: (data.action === 'tsx_generated' ? 'tsx' : 'text') as 'text' | 'chart' | 'table' | 'code' | 'tsx',
-        metadata: data.action === 'tsx_generated' ? { 
-          action: data.action,
-          dynamic_content_enabled: data.dynamic_content_enabled,
-          error_check_results: data.error_check_results
-        } : undefined
-      });
       
     } catch (error) {
       console.error('Error calling backend:', error);
       
-      // Fallback to default behavior if backend is not available
-      const isUIKeyword = /\b(hello world|landing page|component|button|form|add text|create|design|ui|interface|layout|card|modal|navbar|footer|sidebar|dashboard)\b/i.test(userMessage.toLowerCase());
-      
-      if (isUIKeyword) {
-        addMessage({
-          content: 'I can generate TSX components and UI elements for you! However, the TSX Agent backend is not currently available. Please start the FastAPI server with `python start_server.py` in the backend directory.',
-          role: 'assistant',
-          type: 'text',
-        });
-      } else {
-        addMessage({
-          content: 'I can help you create React TSX components, UI layouts, and dynamic interfaces. Try asking me to "create a landing page" or "add Hello World text"! (Note: TSX Agent backend connection failed)',
-          role: 'assistant',
-          type: 'text',
-        });
-      }
+      // Fallback error message
+      addMessage({
+        content: 'I\'m sorry, but I\'m having trouble connecting to the backend service. Please make sure the FastAPI server is running at http://localhost:8000. You can start it with `python main.py` in the backend directory.',
+        role: 'assistant',
+        type: 'text',
+      });
     } finally {
       setGenerating(false);
     }
@@ -162,10 +153,10 @@ export function ChatArea() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">
-              Data Visualization Chat
+              AI Chart Creator
             </h2>
             <p className="text-sm text-gray-500">
-              Ask me to create charts, analyze data, and generate visualizations
+              Ask me to create beautiful charts and visualizations for your data
             </p>
           </div>
           <div className="flex items-center space-x-2">
@@ -219,7 +210,7 @@ export function ChatArea() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask me to create charts, analyze data, or generate visualizations..."
+                placeholder="Ask me to create charts, graphs, and data visualizations..."
                 className="min-h-[44px] max-h-32 resize-none pr-20"
                 disabled={isGenerating}
               />
@@ -303,22 +294,22 @@ function WelcomeScreen() {
   
   const quickActions = [
     {
-      title: "Upload your Invoices",
-      description: "Batch process, upload multiple invoices at once",
-      icon: FileText,
-      query: "Show me expenses by category for Q1"
-    },
-    {
-      title: "Create a bar chart",
-      description: "Generate a bar chart with sample data",
+      title: "Create Bar Chart",
+      description: "Generate an interactive bar chart with sample data",
       icon: BarChart,
-      query: "Create a bar chart showing quarterly sales data"
+      query: "Create a bar chart showing monthly sales data"
     },
     {
-      title: "Monthly trend analysis",
+      title: "Create Line Chart",
       description: "Generate a line chart showing trends over time",
       icon: TrendingUp,
-      query: "Create a line chart showing monthly revenue trends"
+      query: "Create a line chart showing revenue trends over 12 months"
+    },
+    {
+      title: "Create Dashboard",
+      description: "Build a comprehensive analytics dashboard",
+      icon: FileText,
+      query: "Create a dashboard with multiple charts showing business metrics"
     }
    
   ];
@@ -337,11 +328,11 @@ function WelcomeScreen() {
     <div className="text-center space-y-6 py-8">
       <div className="space-y-2">
         <h3 className="text-xl font-semibold text-gray-900">
-          Welcome to InvoiceCopilot! 👋
+          Welcome to AI Chart Creator! 📊
         </h3>
         <p className="text-gray-600">
-          I'm your AI assistant for data visualization. I can help you create charts, 
-          analyze data patterns, and generate interactive visualizations in real-time, based on your invoices.
+          I'm your AI chart and visualization specialist. I can create beautiful, interactive charts
+          and graphs for your data. Just describe what visualization you need!
         </p>
       </div>
 
@@ -376,9 +367,9 @@ function WelcomeScreen() {
         <p>Try asking something like:</p>
         <div className="flex flex-wrap justify-center gap-2 mt-2">
           {[
-            "Show me expenses by category for Q1",
-            "Generate a quarterly revenue analysis",
-            "Create a sales performance chart"
+            "Create a pie chart for expense categories",
+            "Make a dashboard with sales metrics",
+            "Generate an area chart showing growth trends"
           ].map((example, index) => (
             <button
               key={index}
