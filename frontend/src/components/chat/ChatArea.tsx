@@ -7,18 +7,25 @@ import { Button } from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/Textarea';
 import { Card } from '@/components/ui/Card';
 import { LoadingDots } from '@/components/ui/LoadingSpinner';
+import { NextStepsAnimation } from './NextStepsAnimation';
 import { cn, formatDateTime } from '@/lib/utils';
 
 export function ChatArea() {
-  const { state, addMessage, setGenerating, setChart } = useApp();
+  const { state, addMessage, setGenerating, setChart, setWorkspaceContent } = useApp();
   const { messages, isGenerating } = state;
   const [input, setInput] = useState('');
+  const [showNextSteps, setShowNextSteps] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Add a small delay to ensure layout has stabilized before scrolling
+    const scrollTimer = setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+    
+    return () => clearTimeout(scrollTimer);
   }, [messages]);
 
   // Auto-resize textarea
@@ -43,11 +50,44 @@ export function ChatArea() {
       type: 'text',
     });
 
+    // Check if this is a request for expenses report
+    const isExpensesRequest = /show me expenses by category for q1/i.test(userMessage.toLowerCase());
+
     // Start generating response
     setGenerating(true);
 
     try {
-      // Call backend API to process chat message
+      // Handle expenses report request locally with visual streaming effect
+      if (isExpensesRequest) {
+        // Show next steps animation
+        setShowNextSteps(true);
+        
+        // Complete after animation finishes (approximately 4 seconds)
+        setTimeout(() => {
+          setShowNextSteps(false);
+          
+          // Add final confirmation message first
+          addMessage({
+            content: 'I\'ve generated a comprehensive Q1 2025 expenses analysis by category. The report includes detailed breakdowns, performance metrics, and visual representations of your spending patterns from January to March 2025. You can see the full report with charts and data in the workspace area.',
+            role: 'assistant',
+            type: 'text',
+          });
+          
+          // Enable dynamic workspace after a short delay to allow message rendering
+          setTimeout(() => {
+            if (typeof window !== 'undefined' && (window as any).setUseDynamicContent) {
+              (window as any).setUseDynamicContent(true);
+            }
+            setWorkspaceContent('expenses-report');
+          }, 300);
+          
+          setGenerating(false);
+        }, 4500); // Allow time for all steps to complete
+        
+        return; // Exit early for expenses report
+      }
+
+      // Call backend API to process other chat messages
       const response = await fetch('http://localhost:8000/api/chat', {
         method: 'POST',
         headers: {
@@ -76,7 +116,7 @@ export function ChatArea() {
       addMessage({
         content: data.response,
         role: 'assistant',
-        type: data.action === 'tsx_generated' ? 'tsx' : 'text',
+        type: (data.action === 'tsx_generated' ? 'tsx' : 'text') as 'text' | 'chart' | 'table' | 'code' | 'tsx',
         metadata: data.action === 'tsx_generated' ? { 
           action: data.action,
           dynamic_content_enabled: data.dynamic_content_enabled,
@@ -146,7 +186,7 @@ export function ChatArea() {
             ))
           )}
           
-          {isGenerating && (
+          {isGenerating && !showNextSteps && (
             <div className="flex justify-start">
               <Card className="chat-bubble-assistant bg-white border shadow-sm">
                 <div className="flex items-center space-x-2">
@@ -154,6 +194,14 @@ export function ChatArea() {
                   <span className="text-sm text-gray-500">Thinking...</span>
                 </div>
               </Card>
+            </div>
+          )}
+          
+          {showNextSteps && (
+            <div className="flex justify-start">
+              <div className="max-w-[80%]">
+                <NextStepsAnimation />
+              </div>
             </div>
           )}
           
@@ -255,10 +303,10 @@ function WelcomeScreen() {
   
   const quickActions = [
     {
-      title: "Uplodad your Invoices",
+      title: "Upload your Invoices",
       description: "Batch process, upload multiple invoices at once",
       icon: FileText,
-      query: "Generate a pie chart showing market share distribution"
+      query: "Show me expenses by category for Q1"
     },
     {
       title: "Create a bar chart",
@@ -328,9 +376,9 @@ function WelcomeScreen() {
         <p>Try asking something like:</p>
         <div className="flex flex-wrap justify-center gap-2 mt-2">
           {[
-            "Create a sales performance chart",
+            "Show me expenses by category for Q1",
             "Generate a quarterly revenue analysis",
-            "Show me a comparison graph"
+            "Create a sales performance chart"
           ].map((example, index) => (
             <button
               key={index}

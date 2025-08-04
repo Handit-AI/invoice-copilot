@@ -7,6 +7,8 @@ import { AppState, Message, ChartConfig } from '@/types';
 const initialState: AppState = {
   isGenerating: false,
   messages: [],
+  uploadedInvoices: [],
+  workspaceContent: null,
   sessionId: `session_${Date.now()}`,
 };
 
@@ -16,6 +18,9 @@ type AppAction =
   | { type: 'ADD_MESSAGE'; payload: Message }
   | { type: 'UPDATE_MESSAGES'; payload: Message[] }
   | { type: 'SET_CHART'; payload: ChartConfig | undefined }
+  | { type: 'SET_UPLOADED_INVOICES'; payload: File[] }
+  | { type: 'ADD_UPLOADED_INVOICES'; payload: File[] }
+  | { type: 'SET_WORKSPACE_CONTENT'; payload: AppState['workspaceContent'] }
   | { type: 'RESET_SESSION' };
 
 // Reducer
@@ -35,6 +40,15 @@ function appReducer(state: AppState, action: AppAction): AppState {
     
     case 'SET_CHART':
       return { ...state, currentChart: action.payload };
+    
+    case 'SET_UPLOADED_INVOICES':
+      return { ...state, uploadedInvoices: action.payload };
+    
+    case 'ADD_UPLOADED_INVOICES':
+      return { ...state, uploadedInvoices: [...state.uploadedInvoices, ...action.payload] };
+    
+    case 'SET_WORKSPACE_CONTENT':
+      return { ...state, workspaceContent: action.payload };
     
     case 'RESET_SESSION':
       return {
@@ -56,6 +70,9 @@ interface AppContextType {
   addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => void;
   setGenerating: (generating: boolean) => void;
   setChart: (chart: ChartConfig | undefined) => void;
+  setUploadedInvoices: (invoices: File[]) => void;
+  addUploadedInvoices: (invoices: File[]) => void;
+  setWorkspaceContent: (content: AppState['workspaceContent']) => void;
   resetSession: () => void;
 }
 
@@ -83,6 +100,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'SET_CHART', payload: chart });
   }, []);
 
+  const setUploadedInvoices = useCallback((invoices: File[]) => {
+    dispatch({ type: 'SET_UPLOADED_INVOICES', payload: invoices });
+  }, []);
+
+  const addUploadedInvoices = useCallback((invoices: File[]) => {
+    dispatch({ type: 'ADD_UPLOADED_INVOICES', payload: invoices });
+  }, []);
+
+  const setWorkspaceContent = useCallback((content: AppState['workspaceContent']) => {
+    dispatch({ type: 'SET_WORKSPACE_CONTENT', payload: content });
+  }, []);
+
   const resetSession = useCallback(() => {
     dispatch({ type: 'RESET_SESSION' });
   }, []);
@@ -93,6 +122,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addMessage,
     setGenerating,
     setChart,
+    setUploadedInvoices,
+    addUploadedInvoices,
+    setWorkspaceContent,
     resetSession,
   };
 

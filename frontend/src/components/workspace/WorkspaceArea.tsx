@@ -10,7 +10,7 @@ import { DynamicWorkspace } from './DynamicWorkspace';
 
 export function WorkspaceArea() {
   const { state } = useApp();
-  const { isGenerating, currentChart } = state;
+  const { isGenerating, currentChart, uploadedInvoices, workspaceContent } = state;
   
   // Flag to determine whether to show dynamic content
   // This can be controlled by the chat/AI system
@@ -44,6 +44,11 @@ export function WorkspaceArea() {
           </div>
           
           <div className="flex items-center gap-3">
+            {/* Invoice Icons - shown when invoices are uploaded */}
+            {uploadedInvoices.length > 0 && (
+              <InvoiceIcons invoices={uploadedInvoices} />
+            )}
+            
             {/* Action Buttons */}
             <div className="flex items-center gap-1">
               <Button variant="outline" size="sm" disabled={!currentChart} className="px-2">
@@ -63,8 +68,8 @@ export function WorkspaceArea() {
       </div>
 
       {/* Workspace Content */}
-      <div className="flex-1 p-6">
-        {useDynamicContent ? (
+      <div className="flex-1 p-6 bg-gray-50">
+        {(useDynamicContent || workspaceContent) ? (
           <DynamicWorkspace />
         ) : isGenerating ? (
           <GeneratingView />

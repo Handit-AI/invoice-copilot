@@ -4,7 +4,7 @@ export interface Message {
   content: string;
   role: 'user' | 'assistant';
   timestamp: Date;
-  type?: 'text' | 'chart' | 'table' | 'code';
+  type?: 'text' | 'chart' | 'table' | 'code' | 'tsx';
   metadata?: Record<string, any>;
 }
 
@@ -22,6 +22,10 @@ export interface AppState {
   // Data State
   messages: Message[];
   currentChart?: ChartConfig;
+  uploadedInvoices: File[];
+  
+  // Dynamic Workspace State
+  workspaceContent: 'default' | 'expenses-report' | null;
   
   // Session State
   sessionId: string;

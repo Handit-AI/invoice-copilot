@@ -4,17 +4,18 @@ import React, { useState } from 'react';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { WorkspaceArea } from '@/components/workspace/WorkspaceArea';
 import { DragDropOverlay } from '@/components/upload/DragDropOverlay';
+import { useApp } from '@/contexts/AppContext';
 
 export function MainLayout() {
+  const { addUploadedInvoices } = useApp();
   const [isProcessing, setIsProcessing] = useState(false);
-  const [uploadedInvoices, setUploadedInvoices] = useState<File[]>([]);
 
   const handleFileDrop = async (files: File[]) => {
     setIsProcessing(true);
     
     // Simulate processing delay
     setTimeout(() => {
-      setUploadedInvoices(prev => [...prev, ...files]);
+      addUploadedInvoices(files);
       setIsProcessing(false);
     }, 8000); // 8 seconds for full simulation
   };
@@ -28,7 +29,7 @@ export function MainLayout() {
       
       {/* Workspace area - right side (wider) */}
       <div className="w-2/3">
-        <WorkspaceArea uploadedInvoices={uploadedInvoices} />
+        <WorkspaceArea />
       </div>
 
       {/* Drag Drop Overlay */}
