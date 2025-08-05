@@ -4,3 +4,5 @@ chunkr-ai
 pinecone
 openai==1.54.0
 pyyaml==6.0.1
+python-dotenv==1.0.0
+handit-sdk>=1.16.0

@@ -14,6 +14,10 @@ from typing import List, Optional
 import tempfile
 import json
 import uuid
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -304,7 +308,41 @@ async def process_chat_message(message: dict):
             "response": f"I encountered an error while processing your request: {str(e)}"
         }
 
+def check_handit_configuration():
+    """Check if Handit.ai is properly configured"""
+    handit_api_key = os.getenv("HANDIT_API_KEY")
+    
+    if not handit_api_key:
+        print("❌ ERROR: Handit.ai API key is required to run this project!")
+        print("")
+        print("📋 To get started:")
+        print("1. Visit https://www.handit.ai/ to create an account")
+        print("2. Get your API key from the dashboard")
+        print("3. Add HANDIT_API_KEY=your_api_key_here to your .env file")
+        print("")
+        print("🔧 Example .env file:")
+        print("HANDIT_API_KEY=your_handit_api_key_here")
+        print("OPENAI_API_KEY=your_openai_api_key_here")
+        print("")
+        print("💡 Handit.ai provides:")
+        print("   • AI Observability - Monitor your AI agents")
+        print("   • Quality Evaluation - Automatically grade responses")
+        print("   • Self-Improving AI - Auto-optimize prompts")
+        print("")
+        return False
+    
+    print("✅ Handit.ai configuration found!")
+    print(f"🔑 API Key: {handit_api_key[:8]}...{handit_api_key[-4:] if len(handit_api_key) > 12 else '***'}")
+    return True
+
 if __name__ == "__main__":
     import uvicorn
+    
+    # Check Handit.ai configuration before starting
+    if not check_handit_configuration():
+        print("")
+        print("🚫 Server startup aborted. Please configure Handit.ai first.")
+        exit(1)
+    
     logger.info("🚀 Starting FastAPI Backend...")
     uvicorn.run(app, host="0.0.0.0", port=8000)

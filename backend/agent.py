@@ -11,6 +11,9 @@ from utils.call_llm import call_llm
 from utils.read_file import read_file
 from utils.replace_file import replace_file, overwrite_entire_file
 
+# Observability, Evaluation, Self-Improvement
+from services.handit_service import tracker
+
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
@@ -277,7 +280,7 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
 #         }
 
 class SimpleReportAction:
-    def execute(self, params: Dict[str, Any], working_dir: str = "") -> Dict[str, Any]:
+    def execute(self, params: Dict[str, Any], working_dir: str = "", execution_id: str = None) -> Dict[str, Any]:
         user_request = params.get("user_request")
         if not user_request:
             raise ValueError("Missing user_request parameter")
@@ -319,7 +322,25 @@ Generate a helpful response that directly addresses the user's request.
 """
             
             # Call LLM to generate response
-            response = call_llm(prompt)
+            response = call_llm(
+                prompt
+            )
+            
+            # Track the tool usage with Handit.ai
+            if execution_id:
+                tracker.track_node(
+                    input={
+                        "system_prompt": prompt,
+                        "user_prompt": user_request,
+                        "invoice_data_count": len(invoice_data),
+                        "tool_name": "simple_report"
+                    },
+                    output=response,
+                    node_name="simple_report_action",
+                    agent_name="invoice_copilot_agent",
+                    node_type="llm",
+                    execution_id=execution_id
+                )
             
             return {
                 "success": True,
@@ -336,7 +357,7 @@ Generate a helpful response that directly addresses the user's request.
             }
 
 class OtherRequestAction:
-    def execute(self, params: Dict[str, Any], working_dir: str = "") -> Dict[str, Any]:
+    def execute(self, params: Dict[str, Any], working_dir: str = "", execution_id: str = None) -> Dict[str, Any]:
         user_request = params.get("user_request")
         if not user_request:
             raise ValueError("Missing user_request parameter")
@@ -361,7 +382,25 @@ Be helpful and suggest specific ways you could assist them with business reporti
 """
         
         # Call LLM to generate response
-        response = call_llm(prompt)
+        response = call_llm(
+            prompt
+
+        )
+        
+        # Track the tool usage with Handit.ai
+        if execution_id:
+            tracker.track_node(
+                input={
+                    "system_prompt": prompt,
+                    "user_prompt": user_request,
+                    "tool_name": "other_request"
+                },
+                output=response,
+                node_name="other_request_action",
+                agent_name="invoice_copilot_agent",
+                node_type="llm",
+                execution_id=execution_id
+            )
         
         return {
             "success": True,
@@ -370,7 +409,7 @@ Be helpful and suggest specific ways you could assist them with business reporti
         }
 
 class EditFileAction:
-    def execute(self, params: Dict[str, Any], working_dir: str = "") -> Dict[str, Any]:
+    def execute(self, params: Dict[str, Any], working_dir: str = "", execution_id: str = None) -> Dict[str, Any]:
         target_file = params.get("target_file")
         instructions = params.get("instructions")
         chart_description = params.get("chart_description", "")
@@ -674,7 +713,9 @@ MANDATORY RULES:
 """
         
         # Call LLM to analyze
-        response = call_llm(prompt)
+        response = call_llm(
+            prompt
+        )
         logger.info(f"EditFileAction: LLM response length: {len(response)}")
 
         # Look for YAML structure in the response
@@ -791,6 +832,33 @@ MANDATORY RULES:
         
         all_successful = failed_ops == 0
         
+        # Track the tool usage with Handit.ai
+        if execution_id:
+            tracker.track_node(
+                input={
+                    "target_file": target_file,
+                    "instructions": instructions,
+                    "chart_description": chart_description,
+                    "operations_count": len(sorted_ops),
+                    "successful_operations": successful_ops,
+                    "failed_operations": failed_ops,
+                    "tool_name": "edit_file",
+                    "system_prompt": prompt,
+                    "user_prompt": instructions
+                },
+                output={
+                    "success": all_successful,
+                    "operations": len(sorted_ops),
+                    "successful_operations": successful_ops,
+                    "failed_operations": failed_ops,
+                    "reasoning": reasoning
+                },
+                node_name="edit_file_action",
+                agent_name="invoice_copilot_agent",
+                node_type="llm",
+                execution_id=execution_id
+            )
+        
         return {
                 "success": all_successful,
             "operations": len(sorted_ops),
@@ -862,11 +930,17 @@ class CodingAgent:
         """
         logger.info(f"CodingAgent: Processing request: {user_query}")
         
+        # Start Handit.ai tracing
+        tracing_response = tracker.start_tracing(agent_name="invoice_copilot_agent")
+        execution_id = tracing_response.get("executionId")
+        logger.info(f"Handit.ai tracing started with execution_id: {execution_id}")
+        
         # Initialize shared state
         shared_state = {
             "user_query": user_query,
             "history": [],
-            "working_dir": self.working_dir
+            "working_dir": self.working_dir,
+            "execution_id": execution_id
         }
         
         # Main processing loop
@@ -901,12 +975,20 @@ class CodingAgent:
                 if tool == "finish":
                     logger.info("CodingAgent: Finishing and generating response")
                     final_response = self.format_response.execute(shared_state["history"], user_query)
+                    
+                    # End Handit.ai tracing
+                    try:
+                        tracker.end_tracing(execution_id=execution_id, agent_name="invoice_copilot_agent")
+                        logger.info(f"Handit.ai tracing ended for execution_id: {execution_id}")
+                    except Exception as e:
+                        logger.error(f"Error ending Handit.ai tracing: {str(e)}")
+                    
                     return final_response
                 
                 # Execute the selected action
                 if tool in self.actions:
                     try:
-                        result = self.actions[tool].execute(params, self.working_dir)
+                        result = self.actions[tool].execute(params, self.working_dir, execution_id)
                         # Update result in history
                         shared_state["history"][-1]["result"] = result
                         logger.info(f"CodingAgent: Action {tool} completed successfully")
@@ -951,4 +1033,12 @@ class CodingAgent:
         # If we've reached max iterations without finishing
         logger.warning(f"CodingAgent: Reached maximum iterations ({max_iterations})")
         final_response = self.format_response.execute(shared_state["history"], user_query)
+        
+        # End Handit.ai tracing
+        try:
+            tracker.end_tracing(execution_id=execution_id, agent_name="invoice_copilot_agent")
+            logger.info(f"Handit.ai tracing ended for execution_id: {execution_id}")
+        except Exception as e:
+            logger.error(f"Error ending Handit.ai tracing: {str(e)}")
+        
         return final_response
