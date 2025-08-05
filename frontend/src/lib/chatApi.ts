@@ -27,7 +27,7 @@ export interface ChatResponse {
 
 export async function sendChatMessage(
   message: string,
-  workspaceDir: string = 'frontend/src/components/workspace'
+  workspaceDir: string = 'frontend/src/components/workspace/DynamicWorkspace.tsx'
 ): Promise<ChatResponse> {
   try {
     console.log(`📤 Sending chat message to backend: "${message}"`);

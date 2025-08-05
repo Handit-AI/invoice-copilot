@@ -45,12 +45,6 @@ export function DragDropOverlay({ onFileDrop, isProcessing, processingProgress }
         label: 'Extracting Data with Advanced OCR',
         status: 'pending',
         icon: FileText
-      },
-      {
-        id: 'vector',
-        label: 'Uploading Invoice to Vector Store',
-        status: 'pending',
-        icon: Upload
       }
     ];
     setProcessingSteps(steps);
@@ -70,8 +64,7 @@ export function DragDropOverlay({ onFileDrop, isProcessing, processingProgress }
         'uploading': 0,
         'processing': 1,
         'ocr': 2,
-        'vector': 3,
-        'completed': 4,
+        'completed': 3,
         'error': -1
       };
 

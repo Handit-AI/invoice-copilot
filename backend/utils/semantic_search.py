@@ -57,28 +57,40 @@ def semantic_search(
         
         logger.info(f"🔍 Performing semantic search for: '{query}' in namespace '{namespace}'")
         
-        # Perform the search using Pinecone's integrated embeddings
-        search_response = index.search(
-            namespace=namespace,
-            query={
-                "top_k": min(top_k, 10000),  # Pinecone limit
-                "inputs": {
-                    'text': query
-                }
-            },
-            include_metadata=include_metadata,
-            include_values=include_values
-        )
+        # Use OpenAI to generate embeddings since we don't know if index has integrated inference
+        try:
+            from openai import OpenAI
+            openai_client = OpenAI()
+            
+            # Generate embedding for the query
+            embedding_response = openai_client.embeddings.create(
+                model="text-embedding-3-small",
+                input=query,
+                dimensions=1024  # Match your index dimension
+            )
+            query_vector = embedding_response.data[0].embedding
+            
+            # Perform the search using the vector
+            search_response = index.query(
+                namespace=namespace,
+                vector=query_vector,
+                top_k=min(top_k, 10000),  # Pinecone limit
+                include_metadata=include_metadata,
+                include_values=include_values
+            )
+        except Exception as embedding_error:
+            logger.error(f"❌ Error generating embeddings: {embedding_error}")
+            return False, []
         
-        # Process the results
-        hits = search_response.get('result', {}).get('hits', [])
+        # Process the results - new API returns matches directly
+        hits = search_response.get('matches', [])
         
         processed_results = []
         for hit in hits:
             result = {
-                "id": hit.get('_id', ''),
-                "score": hit.get('_score', 0.0),
-                "metadata": hit.get('fields', {}) if include_metadata else {}
+                "id": hit.get('id', ''),
+                "score": hit.get('score', 0.0),
+                "metadata": hit.get('metadata', {}) if include_metadata else {}
             }
             
             # Include vector values if requested

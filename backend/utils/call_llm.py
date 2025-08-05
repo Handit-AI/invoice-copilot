@@ -24,7 +24,7 @@ logger.addHandler(file_handler)
 cache_file = "llm_cache.json"
 
 # Learn more about calling the LLM: https://the-pocket.github.io/PocketFlow/utility_function/llm.html
-def call_llm(prompt: str, use_cache: bool = True) -> str:
+def call_llm(prompt: str, use_cache: bool = False) -> str:
     # Log the prompt
     logger.info(f"PROMPT: {prompt}")
     
@@ -49,43 +49,43 @@ def call_llm(prompt: str, use_cache: bool = True) -> str:
         api_key=os.getenv("OPENAI_API_KEY")
     )
     response = client.chat.completions.create(
-        model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini-2024-07-18"),
         messages=[{"role": "user", "content": prompt}],
         max_tokens=4000,
-        temperature=0.7
+        temperature=0.4
     )
     response_text = response.choices[0].message.content
     
     # Log the response
     logger.info(f"RESPONSE: {response_text}")
     
-    # Update cache if enabled
-    if use_cache:
-        # Load cache again to avoid overwrites
-        cache = {}
-        if os.path.exists(cache_file):
-            try:
-                with open(cache_file, 'r') as f:
-                    cache = json.load(f)
-            except:
-                pass
+    # # Update cache if enabled
+    # if use_cache:
+    #     # Load cache again to avoid overwrites
+    #     cache = {}
+    #     if os.path.exists(cache_file):
+    #         try:
+    #             with open(cache_file, 'r') as f:
+    #                 cache = json.load(f)
+    #         except:
+    #             pass
         
-        # Add to cache and save
-        cache[prompt] = response_text
-        try:
-            with open(cache_file, 'w') as f:
-                json.dump(cache, f)
-            logger.info(f"Added to cache")
-        except Exception as e:
-            logger.error(f"Failed to save cache: {e}")
+    #     # Add to cache and save
+    #     cache[prompt] = response_text
+    #     try:
+    #         with open(cache_file, 'w') as f:
+    #             json.dump(cache, f)
+    #         logger.info(f"Added to cache")
+    #     except Exception as e:
+    #         logger.error(f"Failed to save cache: {e}")
     
     return response_text
 
-def clear_cache() -> None:
-    """Clear the cache file if it exists."""
-    if os.path.exists(cache_file):
-        os.remove(cache_file)
-        logger.info("Cache cleared")
+# def clear_cache() -> None:
+#     """Clear the cache file if it exists."""
+#     if os.path.exists(cache_file):
+#         os.remove(cache_file)
+#         logger.info("Cache cleared")
 
 if __name__ == "__main__":
     test_prompt = "Hello, how are you?"

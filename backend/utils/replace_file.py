@@ -95,22 +95,39 @@ def write_entire_file(target_file: str, content: str) -> Tuple[bool, str]:
     """
     try:
         # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(target_file), exist_ok=True)
+        target_dir = os.path.dirname(target_file)
+        if target_dir:
+            os.makedirs(target_dir, exist_ok=True)
         
         # Write the content
         with open(target_file, 'w', encoding='utf-8') as f:
             f.write(content)
         
         line_count = len(content.splitlines())
-        logger.info(f"Wrote {line_count} lines to {target_file}")
+        logger.info(f"Completely overwrote {target_file} with {line_count} lines")
         
-        return True, f"Successfully wrote {line_count} lines to file"
+        return True, f"Successfully overwrote entire file with {line_count} lines"
         
     except PermissionError:
         return False, f"Permission denied: {target_file}"
     except Exception as e:
         logger.error(f"Error writing file: {str(e)}")
         return False, f"Error: {str(e)}"
+
+def overwrite_entire_file(target_file: str, content: str) -> Tuple[bool, str]:
+    """
+    Completely overwrite a file with new content (alias for write_entire_file).
+    This function is specifically designed for complete file replacement.
+    
+    Args:
+        target_file: Path to the file to overwrite
+        content: New content to replace the entire file
+        
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    logger.info(f"Overwriting entire file: {target_file}")
+    return write_entire_file(target_file, content)
 
 # Example usage and testing
 if __name__ == "__main__":

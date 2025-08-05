@@ -1,14 +1,15 @@
 import os
 import yaml  # Add YAML support
 import logging
+import json
+import glob
 from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
 
 # Import utility functions
 from utils.call_llm import call_llm
 from utils.read_file import read_file
-from utils.replace_file import replace_file
-from utils.semantic_search import semantic_search, format_search_results
+from utils.replace_file import replace_file, overwrite_entire_file
 
 # Set up logging
 logging.basicConfig(
@@ -21,6 +22,45 @@ logging.basicConfig(
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger('coding_agent')
+
+def load_invoice_data() -> Dict[str, Any]:
+    """
+    Load all invoice JSON files from the processed/ directory.
+    
+    Returns:
+        Dictionary containing all invoice data
+    """
+    try:
+        # Get the directory where this script is located (backend/)
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        processed_dir = os.path.join(current_dir, "processed")
+        
+        # Find all JSON files in the processed directory
+        json_files = glob.glob(os.path.join(processed_dir, "*.json"))
+        logger.info(f"Found {len(json_files)} JSON files in {processed_dir}")
+        
+        invoices = {}
+        
+        for json_file in json_files:
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    invoice_data = json.load(f)
+                
+                # Use filename as key
+                file_name = os.path.basename(json_file)
+                invoices[file_name] = invoice_data
+                logger.info(f"Loaded invoice: {file_name}")
+                
+            except Exception as e:
+                logger.error(f"Error loading {json_file}: {str(e)}")
+                continue
+        
+        logger.info(f"Loaded {len(invoices)} invoice files")
+        return invoices
+        
+    except Exception as e:
+        logger.error(f"Error loading invoice data: {str(e)}")
+        return {}
 
 def format_history_summary(history: List[Dict[str, Any]]) -> str:
     if not history:
@@ -49,27 +89,7 @@ def format_history_summary(history: List[Dict[str, Any]]) -> str:
                 history_str += f"- Result: {'Success' if success else 'Failed'}\n"
                 
                 # Add tool-specific details
-                if action['tool'] == 'read_file' and success:
-                    content = result.get("content", "")
-                    # Show full content without truncating
-                    history_str += f"- Content: {content}\n"
-                elif action['tool'] == 'grep_search' and success:
-                    matches = result.get("matches", [])
-                    history_str += f"- Matches: {len(matches)}\n"
-                    # Show all matches without limiting to first 3
-                    for j, match in enumerate(matches):
-                        history_str += f"  {j+1}. {match.get('file')}:{match.get('line')}: {match.get('content')}\n"
-                elif action['tool'] == 'semantic_search' and success:
-                    total_results = result.get("total_results", 0)
-                    query = result.get("query", "")
-                    namespace = result.get("namespace", "")
-                    history_str += f"- Semantic Search Results: {total_results} found\n"
-                    history_str += f"- Query: '{query}' in namespace '{namespace}'\n"
-                    # Include formatted results if available
-                    formatted_results = result.get("formatted_results", "")
-                    if formatted_results:
-                        history_str += f"- Results:\n{formatted_results}\n"
-                elif action['tool'] == 'edit_file' and success:
+                if action['tool'] == 'edit_file' and success:
                     operations = result.get("operations", 0)
                     history_str += f"- Operations: {operations}\n"
                     
@@ -77,27 +97,18 @@ def format_history_summary(history: List[Dict[str, Any]]) -> str:
                     reasoning = result.get("reasoning", "")
                     if reasoning:
                         history_str += f"- Reasoning: {reasoning}\n"
-                elif action['tool'] == 'list_dir' and success:
-                    # Get the tree visualization string
-                    tree_visualization = result.get("tree_visualization", "")
-                    history_str += "- Directory structure:\n"
-                    
-                    # Properly handle and format the tree visualization
-                    if tree_visualization and isinstance(tree_visualization, str):
-                        # First, ensure we handle any special line ending characters properly
-                        clean_tree = tree_visualization.replace('\r\n', '\n').strip()
-                        
-                        if clean_tree:
-                            # Add each line with proper indentation
-                            for line in clean_tree.split('\n'):
-                                # Ensure the line is properly indented
-                                if line.strip():  # Only include non-empty lines
-                                    history_str += f"  {line}\n"
-                        else:
-                            history_str += "  (No tree structure data)\n"
-                    else:
-                        history_str += "  (Empty or inaccessible directory)\n"
-                        logger.debug(f"Tree visualization missing or invalid: {tree_visualization}")
+                elif action['tool'] == 'simple_report' and success:
+                    response = result.get("response", "")
+                    request_type = result.get("request_type", "")
+                    history_str += f"- Request Type: {request_type}\n"
+                    if response:
+                        history_str += f"- Response: {response[:200]}...\n" if len(response) > 200 else f"- Response: {response}\n"
+                elif action['tool'] == 'other_request' and success:
+                    response = result.get("response", "")
+                    request_type = result.get("request_type", "")
+                    history_str += f"- Request Type: {request_type}\n"
+                    if response:
+                        history_str += f"- Response: {response[:200]}...\n" if len(response) > 200 else f"- Response: {response}\n"
             else:
                 history_str += f"- Result: {result}\n"
         
@@ -110,14 +121,16 @@ def format_history_summary(history: List[Dict[str, Any]]) -> str:
 # Main Decision Agent
 #############################################
 class MainDecisionAgent:
-    def analyze_and_decide(self, user_query: str, history: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def analyze_and_decide(self, user_query: str, history: List[Dict[str, Any]], working_dir: str = "") -> Dict[str, Any]:
         logger.info(f"MainDecisionAgent: Analyzing user query: {user_query}")
 
+        # Get the working directory from the params
+        working_dir = working_dir
         # Format history using the utility function
         history_str = format_history_summary(history)
         
         # Create prompt for the LLM using YAML instead of JSON
-        prompt = f"""You are a chart and visualization specialist. Your primary goal is to create beautiful, interactive charts and graphs in React components. Given the following request, decide which tool to use from the available options.
+        system_prompt = f"""You are a professional report and data visualization specialist. Given the following request, decide which tool to use from the available options.
 
 User request: {user_query}
 
@@ -125,66 +138,65 @@ Here are the actions you performed:
 {history_str}
 
 Available tools:
-1. edit_file: Create or modify files to generate charts, graphs, and visualizations
-   - This is your primary tool for creating graphics in the workspace
-   - The tool automatically reads the current file content first, then makes modifications
-   - Parameters: target_file (path), instructions, chart_description
+1. edit_file: Create or edit professional reports with data visualizations, if graphs are needed to complete the user request
+   - Parameters: target_file, instructions, chart_description
+     target_file: DynamicWorkspace.tsx (this file is in the working directory: {working_dir})
+     instructions: User request
+     chart_description: A detailed description of charts are needed for the report.
    - Example:
      tool: edit_file
-     reason: I need to create a bar chart component showing sales data
+     reason: I need to create a professional report with real data, and charts are needed for the report, and insights.
      params:
        target_file: DynamicWorkspace.tsx
-       instructions: Create a bar chart showing monthly sales data
-       chart_description: |
-         Create a React component that displays a bar chart with:
-         - Monthly sales data from January to December
-         - Interactive tooltips showing exact values
-         - Responsive design with proper styling
-         - Use Chart.js or similar library for visualization
+       instructions: User request
+       chart_description: 
+         Professional business report featuring:
+         - Expenses trends using LineChart from Recharts
+         - Category breakdown using PieChart from Recharts
+         - Monthly comparison using BarChart from Recharts
+         - Key metrics cards with real numbers
+         - Responsive design with professional styling
 
-2. semantic_search: Search for relevant data or examples when needed
-   - Use this only when you need to find specific data or examples for charts
-   - Parameters: query (text), namespace (optional), top_k (optional)
+2. simple_report: ONLY If the user wants to know especific information about the data, the user resquest is simple and graphs are not needed to complete the user request
+   - Parameters: user_request
+     user_request: User request
    - Example:
-     tool: semantic_search
-     reason: I need to find invoice data to create a revenue chart
+     tool: simple_report
+     reason: I need to answer just an specific information, and the user request is simple and graphs are not needed
      params:
-       query: "monthly revenue invoice data"
-       namespace: "example-namespace"
-       top_k: 5
+       user_request: User request
+         
+3. other_request: If the user request is not related to the report, graphs, statistics data, you can use this tool to do other requests.
+   - Parameters: user_request
+     user_request: User request
+   - Example:
+     tool: other_request
+     reason: I need to gently tell the user that I can only help with the report, graphs, statistics data, and other requests related to the report, graphs, statistics data.
+     params:
+       user_request: User request
 
-3. finish: Complete the task and provide final response
+4. finish: Complete the task and provide final response
    - No parameters required
    - Example:
      tool: finish
-     reason: I have completed the requested task of finding all logger instances
+     reason: I have successfully completed all the user request.
      params: {{}}
 
 Respond with a YAML object containing:
 ```yaml
-tool: one of: edit_file, semantic_search, finish
-reason: |
+tool: one of: edit_file, simple_report, other_request, finish
+reason:
   detailed explanation of why you chose this tool and what you intend to do
-  For edit_file: explain what chart/graphic you will create
-  For semantic_search: explain what data you need to find
-  For finish: explain why the visualization is complete
+  if you chose finish, explain why no more actions are needed
 params:
   # parameters specific to the chosen tool
 ```
-
-IMPORTANT GUIDELINES:
-- Your primary goal is to create charts, graphs, and visualizations in the workspace
-- Always target DynamicWorkspace.tsx unless specified otherwise
-- Use edit_file to create React components with charts using libraries like Chart.js, Recharts, or D3
-- Include sample data if no real data is available
-- Make visualizations interactive and responsive
-- Only use semantic_search if you need specific data for the charts
 
 If you believe no more actions are needed, use "finish" as the tool and explain why in the reason.
 """
         
         # Call LLM to decide action
-        response = call_llm(prompt)
+        response = call_llm(system_prompt)
 
         # Look for YAML structure in the response
         yaml_content = ""
@@ -226,57 +238,7 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
 # Action Classes for Chart Creation
 #############################################
 
-class SemanticSearchAction:
-    def execute(self, params: Dict[str, Any], working_dir: str = "") -> Dict[str, Any]:
-        query = params.get("query")
-        if not query:
-            raise ValueError("Missing query parameter")
-        
-        namespace = params.get("namespace", "example-namespace")
-        top_k = params.get("top_k", 10)
-        category_filter = params.get("category_filter")
-        filename_filter = params.get("filename_filter")
-        
-        logger.info(f"SemanticSearchAction: Searching for '{query}' in namespace '{namespace}'")
-        
-        # Choose search method based on filters
-        if category_filter:
-            from utils.semantic_search import search_by_category
-            success, results = search_by_category(
-                query=query,
-                category=category_filter,
-                namespace=namespace,
-                top_k=top_k
-            )
-        elif filename_filter:
-            from utils.semantic_search import search_by_filename
-            success, results = search_by_filename(
-                query=query,
-                filename=filename_filter,
-                namespace=namespace,
-                top_k=top_k
-            )
-        else:
-            # Regular semantic search
-            success, results = semantic_search(
-                query=query,
-                namespace=namespace,
-                top_k=top_k
-            )
-        
-        # Format results for better readability
-        formatted_results = ""
-        if success and results:
-            formatted_results = format_search_results(results)
-        
-        return {
-                "success": success,
-            "results": results,
-            "formatted_results": formatted_results,
-            "query": query,
-            "namespace": namespace,
-            "total_results": len(results) if results else 0
-        }
+
 
 # class ListDirAction:
 #     def execute(self, params: Dict[str, Any], working_dir: str = "") -> Dict[str, Any]:
@@ -314,6 +276,99 @@ class SemanticSearchAction:
 #             "message": message
 #         }
 
+class SimpleReportAction:
+    def execute(self, params: Dict[str, Any], working_dir: str = "") -> Dict[str, Any]:
+        user_request = params.get("user_request")
+        if not user_request:
+            raise ValueError("Missing user_request parameter")
+        
+        logger.info(f"SimpleReportAction: Processing simple report request: {user_request}")
+        
+        try:
+            # Load invoice data
+            invoice_data = load_invoice_data()
+            
+            # Check if we have data
+            if not invoice_data:
+                return {
+                    "success": False,
+                    "response": "No invoice data found. Please upload some invoice files first.",
+                    "request_type": "simple_report"
+                }
+            
+            # Generate a prompt for the LLM to handle simple reports
+            prompt = f"""
+You are a professional report specialist. The user has made a simple request that doesn't require graphs or complex visualizations.
+Answer the user's request based on the provided data processed
+
+User request: {user_request}
+
+Data processed: {json.dumps(invoice_data, indent=2)}
+
+Provide a clear, concise response to the user's request. 
+
+GUIDELINES:
+- Focus on providing specific information requested
+- Use only the real data processed
+- Keep the response professional but straightforward
+- No graphs or visualizations needed
+- Provide actionable insights when possible
+- Suggest next steps to the user when possible
+
+Generate a helpful response that directly addresses the user's request.
+"""
+            
+            # Call LLM to generate response
+            response = call_llm(prompt)
+            
+            return {
+                "success": True,
+                "response": response,
+                "request_type": "simple_report"
+            }
+            
+        except Exception as e:
+            logger.error(f"SimpleReportAction failed: {str(e)}")
+            return {
+                "success": False,
+                "response": f"Error processing request: {str(e)}",
+                "request_type": "simple_report"
+            }
+
+class OtherRequestAction:
+    def execute(self, params: Dict[str, Any], working_dir: str = "") -> Dict[str, Any]:
+        user_request = params.get("user_request")
+        if not user_request:
+            raise ValueError("Missing user_request parameter")
+        
+        logger.info(f"OtherRequestAction: Processing other request: {user_request}")
+        
+        # Generate a prompt for the LLM to handle other requests
+        prompt = f"""
+You are a professional report specialist. The user has made a request that is not directly related to reports, graphs, or statistics data.
+
+User request: {user_request}
+
+Please respond politely and professionally, explaining that you specialize in:
+- Creating reports and data visualizations
+- Analyzing invoice and financial data
+- Generating charts and graphs with business insights
+- Statistical analysis of business data
+
+Gently redirect the conversation back to how you can help them with business reporting and data analysis tasks.
+
+Be helpful and suggest specific ways you could assist them with business reporting needs.
+"""
+        
+        # Call LLM to generate response
+        response = call_llm(prompt)
+        
+        return {
+            "success": True,
+            "response": response,
+            "request_type": "other_request"
+        }
+
 class EditFileAction:
     def execute(self, params: Dict[str, Any], working_dir: str = "") -> Dict[str, Any]:
         target_file = params.get("target_file")
@@ -325,8 +380,27 @@ class EditFileAction:
         if not instructions:
             raise ValueError("Missing instructions parameter")
         
-        # Ensure path is relative to working directory
-        full_path = os.path.join(working_dir, target_file) if working_dir else target_file
+        # Handle path resolution correctly for frontend files
+        if working_dir and not os.path.isabs(target_file):
+            # If working_dir is a relative path to frontend, resolve from project root
+            if working_dir.startswith('frontend/'):
+                # We're running from backend/, so go up one level to project root
+                current_dir = os.getcwd()
+                if current_dir.endswith('/backend'):
+                    project_root = os.path.dirname(current_dir)
+                else:
+                    # If not running from backend subdirectory, assume current dir is project root
+                    project_root = current_dir
+                full_path = os.path.join(project_root, working_dir, target_file)
+            else:
+                full_path = os.path.join(working_dir, target_file)
+        else:
+            full_path = target_file
+            
+        # Normalize the path
+        full_path = os.path.abspath(full_path)
+        
+        logger.info(f"EditFileAction: Resolved path from working_dir='{working_dir}' + target_file='{target_file}' -> '{full_path}'")
         
         logger.info(f"EditFileAction: Editing file {full_path}")
         
@@ -339,101 +413,269 @@ class EditFileAction:
                 "operations": 0
             }
         
-        # Step 2: Analyze and plan changes
-        file_lines = file_content.split('\n')
-        total_lines = len(file_lines)
-        
-        # Generate a prompt for the LLM to create chart components
-        prompt = f"""
-You are a React chart specialist. Your goal is to create or modify React components to display charts and visualizations.
 
-CURRENT FILE CONTENT:
-{file_content}
+        
+        # Get real_data parameter if provided, otherwise load invoice data
+        real_data = params.get("real_data", "")
+        if not real_data:
+            invoice_data = load_invoice_data()
+            real_data = json.dumps(invoice_data, indent=2)
+        
+        # Generate a prompt for the LLM to create professional reports with charts
+        prompt = f"""
+You are a professional business report specialist. Your goal is to create comprehensive professional reports, data-driven reports with interactive charts using ONLY Recharts library.
+
+MANDATORY: ALWAYS REPLACE THE ENTIRE FILE CONTENT {file_content} - NO PARTIAL EDITS
 
 USER REQUEST: 
 {instructions}
 
-CHART REQUIREMENTS:
+REPORT REQUIREMENTS:
 {chart_description}
 
-Create a React component that displays the requested chart/visualization. Follow these guidelines:
+PROVIDED DATA:
+{real_data}
 
-1. ALWAYS create interactive and responsive charts
-2. Use modern chart libraries like Recharts, Chart.js, or similar
-3. Include sample data if no real data is provided
-4. Make charts visually appealing with proper styling
-5. Add tooltips and legends when appropriate
-6. Ensure mobile responsiveness
+Create a COMPLETE professional business report React component that REPLACES the entire file. Follow these guidelines:
 
-If the file is empty or has minimal content, create a complete new component.
-If the file has existing content, modify it to add the requested visualization.
+1. MANDATORY: Replace the ENTIRE file from line 1 to any quantity of lines
+2. ONLY use Recharts library for ALL charts (BarChart, LineChart, PieChart, AreaChart, ResponsiveContainer, etc.)
+3. NEVER use Chart.js, D3, or any other chart library
+4. Use ONLY the PROVIDED DATA - extract real totals, dates, amounts, any data you need from the PROVIDED DATA
+5. Parse the invoice JSON data to create meaningful visualizations
+6. Include key metrics cards with REAL calculated values from PROVIDED DATA
+7. Create multiple professional charts showing different aspects of the data
+8. Make all charts interactive with tooltips, legends, and responsive design
+9. Use professional styling with proper colors and layout
+10. You can include other info inside the same file, other components inside the same file but, don't use external libraries, only what is imported
+11. The file MUST ALWAYS start with these exact imports:
+   ```typescript
+   import React from 'react';
+   import {{ useApp }} from '@/contexts/AppContext';
+   import {{ 
+     BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+     XAxis, YAxis, CartesianGrid, Tooltip, Legend, 
+     ResponsiveContainer 
+   }} from 'recharts';
+   ```
 
-Return a YAML object with your reasoning and edit operations:
+CRITICAL REQUIREMENTS:
+- Analize the PROVIDED DATA to accomplish the user request
+- Extract REAL values from the provided invoice JSON data
+- Calculate totals, averages, what ever you need, and insights from actual invoice data
+- Create data arrays from the real invoice information
+- NO sample/fake data - only real calculated values
+
+Return a YAML object with COMPLETE file replacement:
 
 ```yaml
 reasoning: |
-  Explain your approach for creating the chart component.
-  Describe what type of visualization you're creating and why.
-  Explain how you're integrating it with the existing code structure.
-  Detail what chart library you're using and why it's appropriate.
+  I am completely replacing the entire DynamicWorkspace.tsx file to create a professional business report.
+  I will extract real data from the provided invoice JSON files including totals, dates, amounts, and the data I need.
+  I will create multiple Recharts visualizations: BarChart for amounts, LineChart for trends, PieChart, any chart for company breakdown.
+  I will calculate real metrics like total revenue, average invoice amount, number of invoices, any metric etc.
+  The entire file will be replaced with a new implementation using real invoice data.
 
 operations:
   - start_line: 1
-    end_line: 49
+    end_line: 50
     replacement: |
       import React from 'react';
-      import { useApp } from '@/contexts/AppContext';
-      import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+      import {{ useApp }} from '@/contexts/AppContext';
+      import {{ 
+        BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+        XAxis, YAxis, CartesianGrid, Tooltip, Legend, 
+        ResponsiveContainer, AreaChart, Area 
+      }} from 'recharts';
 
-      const sampleData = [
-        { month: 'Jan', sales: 4000, expenses: 2400 },
-        { month: 'Feb', sales: 3000, expenses: 1398 },
-        { month: 'Mar', sales: 2000, expenses: 9800 },
-        { month: 'Apr', sales: 2780, expenses: 3908 },
-        { month: 'May', sales: 1890, expenses: 4800 },
-        { month: 'Jun', sales: 2390, expenses: 3800 }
+      // REAL DATA extracted from provided invoice files, each file is a different invoice
+      const invoiceData = [
+        // Extract and process REAL invoice data here
+        // Calculate actual totals, companies, amounts from JSON
       ];
 
       export function DynamicWorkspace() {{
         const {{ state }} = useApp();
         const {{ workspaceContent }} = state;
 
-        if (workspaceContent === 'expenses-report') {{
-          return <ExpensesReport />;
-        }}
+        // Calculate REAL metrics from invoice data
+        const totalExpenses = 0; // Calculate from real data
+        const totalInvoices = 0; // Calculate from real data
+        const averageAmount = 0; // Calculate from real data
 
         return (
-          <div className="flex h-full items-center justify-center p-6">
-            <div className="w-full max-w-4xl">
-              <h2 className="text-2xl font-bold mb-6 text-center">Sales Dashboard</h2>
-              <ResponsiveContainer width="100%" height={{400}}>
-                <BarChart data={{sampleData}}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="sales" fill="#8884d8" />
-                  <Bar dataKey="expenses" fill="#82ca9d" />
-                </BarChart>
-              </ResponsiveContainer>
+          <div className="p-6 space-y-6">
+            <div className="text-center mb-8">
+              <h1 className="text-3xl font-bold text-gray-900">Invoice Analysis Report</h1>
+              <p className="text-gray-600 mt-2">Real data insights from processed invoices</p>
+            </div>
+            
+            {{/* Key Metrics Cards with REAL values */}}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+              <div className="bg-white p-6 rounded-lg shadow">
+                <h3 className="text-lg font-semibold text-gray-700">Total Expenses</h3>
+                <p className="text-3xl font-bold text-blue-600">${{totalExpenses.toFixed(2)}}</p>
+              </div>
+              <div className="bg-white p-6 rounded-lg shadow">
+                <h3 className="text-lg font-semibold text-gray-700">Total Invoices</h3>
+                <p className="text-3xl font-bold text-green-600">{{totalInvoices}}</p>
+              </div>
+              <div className="bg-white p-6 rounded-lg shadow">
+                <h3 className="text-lg font-semibold text-gray-700">Average Amount</h3>
+                <p className="text-3xl font-bold text-purple-600">${{averageAmount.toFixed(2)}}</p>
+              </div>
+            </div>
+            
+            {{/* Charts using Recharts with REAL data, include all charts you need */}}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white p-6 rounded-lg shadow">
+                <h3 className="text-lg font-semibold mb-4">Invoice Amounts</h3>
+                <ResponsiveContainer width="100%" height={{350}}>
+                  <BarChart data={{invoiceData}}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="invoice" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="amount" fill="#8884d8" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg shadow">
+                <h3 className="text-lg font-semibold mb-4">Company Distribution</h3>
+                <ResponsiveContainer width="100%" height={{350}}>
+                  <PieChart>
+                    <Pie
+                      data={{invoiceData}}
+                      dataKey="amount"
+                      nameKey="company"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={{80}}
+                      fill="#8884d8"
+                      label
+                    >
+                      {{invoiceData.map((entry, index) => (
+                        <Cell key={{`cell-${{index}}`}} fill={{`#${{(index * 123456).toString(16).slice(0, 6)}}`}} />
+                      ))}}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
         );
       }}
 ```
+      import React from 'react';
+      import {{ useApp }} from '@/contexts/AppContext';
+      import {{ 
+        BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+        XAxis, YAxis, CartesianGrid, Tooltip, Legend, 
+        ResponsiveContainer, AreaChart, Area 
+      }} from 'recharts';
 
-IMPORTANT RULES:
-- Always replace the ENTIRE file content for chart components
-- Use line 1 to total_lines+1 to replace everything
-- Include all necessary imports for chart libraries
-- Create complete, functional React components
-- Add proper TypeScript types if the file is .tsx
-- Ensure the component is responsive and well-styled
+      // REAL DATA extracted from provided invoice files, each file is a different invoice
+      const invoiceData = [
+        // Extract and process REAL invoice data here
+        // Calculate actual totals, companies, amounts from JSON
+      ];
+
+      export function DynamicWorkspace() {{
+        const {{ state }} = useApp();
+        const {{ workspaceContent }} = state;
+
+        // Calculate REAL metrics from invoice data
+        const totalExpenses = 0; // Calculate from real data
+        const totalInvoices = 0; // Calculate from real data
+        const averageAmount = 0; // Calculate from real data
+
+        return (
+          <div className="p-6 space-y-6">
+            <div className="text-center mb-8">
+              <h1 className="text-3xl font-bold text-gray-900">Invoice Analysis Report</h1>
+              <p className="text-gray-600 mt-2">Real data insights from processed invoices</p>
+            </div>
+            
+            {{/* Key Metrics Cards with REAL values */}}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+              <div className="bg-white p-6 rounded-lg shadow">
+                <h3 className="text-lg font-semibold text-gray-700">Total Expenses</h3>
+                <p className="text-3xl font-bold text-blue-600">${{totalExpenses.toFixed(2)}}</p>
+              </div>
+              <div className="bg-white p-6 rounded-lg shadow">
+                <h3 className="text-lg font-semibold text-gray-700">Total Invoices</h3>
+                <p className="text-3xl font-bold text-green-600">{{totalInvoices}}</p>
+              </div>
+              <div className="bg-white p-6 rounded-lg shadow">
+                <h3 className="text-lg font-semibold text-gray-700">Average Amount</h3>
+                <p className="text-3xl font-bold text-purple-600">${{averageAmount.toFixed(2)}}</p>
+              </div>
+            </div>
+            
+            {{/* This is an example, you can create your own designs using recharts, and create any quantity of charts you need */}}
+            {{/* Charts using Recharts with REAL data, include all charts you need */}}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white p-6 rounded-lg shadow">
+                <h3 className="text-lg font-semibold mb-4">Invoice Amounts</h3>
+                <ResponsiveContainer width="100%" height={{350}}>
+                  <BarChart data={{invoiceData}}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="invoice" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="amount" fill="#8884d8" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg shadow">
+                <h3 className="text-lg font-semibold mb-4">Company Distribution</h3>
+                <ResponsiveContainer width="100%" height={{350}}>
+                  <PieChart>
+                    <Pie
+                      data={{invoiceData}}
+                      dataKey="amount"
+                      nameKey="company"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={{80}}
+                      fill="#8884d8"
+                      label
+                    >
+                      {{invoiceData.map((entry, index) => (
+                        <Cell key={{`cell-${{index}}`}} fill={{`#${{(index * 123456).toString(16).slice(0, 6)}}`}} />
+                      ))}}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          {{/* You can add tables, descriptions, insights, etc., whatever you need, but only in the same language, and dont use external libraries, only what is imported */}}
+        );
+      }}
+```
+
+MANDATORY RULES:
+- ALWAYS replace the entire file (start_line: 1, end_line: 200 or more lines as needed)
+- Use ONLY real data extracted from the provided invoice JSON
+- Calculate actual metrics from the invoice data
+- NO sample/fake data whatsoever
+- Create meaningful visualizations based on real invoice information
+- The end_line should be a specific number (like 200, 300, etc.) not "any quantity"
 """
         
         # Call LLM to analyze
         response = call_llm(prompt)
+        logger.info(f"EditFileAction: LLM response length: {len(response)}")
 
         # Look for YAML structure in the response
         yaml_content = ""
@@ -441,17 +683,27 @@ IMPORTANT RULES:
             yaml_blocks = response.split("```yaml")
             if len(yaml_blocks) > 1:
                 yaml_content = yaml_blocks[1].split("```")[0].strip()
+                logger.info("EditFileAction: Found ```yaml block")
         elif "```yml" in response:
             yaml_blocks = response.split("```yml")
             if len(yaml_blocks) > 1:
                 yaml_content = yaml_blocks[1].split("```")[0].strip()
+                logger.info("EditFileAction: Found ```yml block")
         elif "```" in response:
             # Try to extract from generic code block
             yaml_blocks = response.split("```")
             if len(yaml_blocks) > 1:
                 yaml_content = yaml_blocks[1].strip()
+                logger.info("EditFileAction: Found generic ``` block")
+        else:
+            # If no code blocks, try to use the entire response
+            yaml_content = response.strip()
+            logger.info("EditFileAction: Using entire response as YAML")
+        
+        logger.info(f"EditFileAction: YAML content length: {len(yaml_content)}")
         
         if not yaml_content:
+            logger.error("EditFileAction: No YAML content found")
             return {
                 "success": False,
                 "message": "No YAML object found in LLM response",
@@ -460,33 +712,35 @@ IMPORTANT RULES:
         
         try:
             decision = yaml.safe_load(yaml_content)
+            logger.info(f"EditFileAction: YAML parsed successfully, keys: {list(decision.keys()) if decision else 'None'}")
             
             # Validate the required fields
             if "reasoning" not in decision:
+                logger.error("EditFileAction: Missing 'reasoning' in YAML")
                 raise ValueError("Reasoning is missing")
             if "operations" not in decision:
+                logger.error("EditFileAction: Missing 'operations' in YAML")
                 raise ValueError("Operations are missing")
             
             # Ensure operations is a list
             if not isinstance(decision["operations"], list):
+                logger.error(f"EditFileAction: Operations is not a list: {type(decision['operations'])}")
                 raise ValueError("Operations are not a list")
             
+            logger.info(f"EditFileAction: Found {len(decision['operations'])} operations")
+            
             # Validate operations
-            for op in decision["operations"]:
+            for i, op in enumerate(decision["operations"]):
+                logger.info(f"EditFileAction: Operation {i+1} - start_line: {op.get('start_line', 'MISSING')}, end_line: {op.get('end_line', 'MISSING')}, replacement_length: {len(op.get('replacement', ''))}")
                 if "start_line" not in op:
                     raise ValueError("start_line is missing")
                 if "end_line" not in op:
                     raise ValueError("end_line is missing")
                 if "replacement" not in op:
                     raise ValueError("replacement is missing")
-                if not (1 <= op["start_line"] <= total_lines + 1):
-                    raise ValueError(f"start_line out of range: {op['start_line']}")
-                if not (1 <= op["end_line"] <= total_lines + 1):
-                    raise ValueError(f"end_line out of range: {op['end_line']}")
-                if op["start_line"] > op["end_line"]:
-                    raise ValueError(f"start_line > end_line: {op['start_line']} > {op['end_line']}")
                     
         except Exception as e:
+            logger.error(f"EditFileAction: YAML parsing error: {str(e)}")
             return {
                 "success": False,
                 "message": f"Error parsing edit operations: {str(e)}",
@@ -506,13 +760,28 @@ IMPORTANT RULES:
         failed_ops = 0
         details = []
         
-        for op in sorted_ops:
-            success, message = replace_file(
-                target_file=full_path,
-            start_line=op["start_line"],
-            end_line=op["end_line"],
-            content=op["replacement"]
-        )
+        for i, op in enumerate(sorted_ops):
+            logger.info(f"EditFileAction: Processing operation {i+1}: start_line={op['start_line']}, end_line={op['end_line']}")
+            
+            # Check if this is a complete file overwrite
+            is_complete_overwrite = (op["start_line"] == 1 and op["end_line"] >= 5)
+            logger.info(f"EditFileAction: Is complete overwrite: {is_complete_overwrite}")
+            
+            if is_complete_overwrite:
+                # Use complete file overwrite for better reliability
+                logger.info(f"EditFileAction: Performing complete file overwrite: {full_path}")
+                success, message = overwrite_entire_file(full_path, op["replacement"])
+                logger.info(f"EditFileAction: Overwrite result - success: {success}, message: {message}")
+            else:
+                # Use line-by-line replacement for partial edits
+                logger.info(f"EditFileAction: Performing partial edit: {full_path}")
+                success, message = replace_file(
+                    target_file=full_path,
+                    start_line=op["start_line"],
+                    end_line=op["end_line"],
+                    content=op["replacement"]
+                )
+                logger.info(f"EditFileAction: Partial edit result - success: {success}, message: {message}")
     
             details.append({"success": success, "message": message})
             if success:
@@ -532,7 +801,7 @@ IMPORTANT RULES:
         }
 
 class FormatResponseAction:
-    def execute(self, history: List[Dict[str, Any]]) -> str:
+    def execute(self, history: List[Dict[str, Any]], user_query: str) -> str:
         # If no history, return a generic message
         if not history:
             return "No actions were performed."
@@ -542,23 +811,21 @@ class FormatResponseAction:
         
         # Prompt for the LLM to generate the final response
         prompt = f"""
-You are a chart and visualization specialist. You have just created or modified charts/graphs based on the user's request.
+You are a professional report and data visualization specialist. You have just performed a series of actions based on the 
+user's request. Summarize what you did in a clear, helpful response to the user.
+
+User request: {user_query}
 
 Here are the actions you performed:
 {actions_summary}
 
-Generate a friendly and informative response that explains:
-1. What chart or visualization you created
-2. What data it displays and key insights
-3. What libraries or technologies were used
-4. How the user can interact with or customize the chart
+Generate a professional and informative response that explains:
+1. What actions were taken
+2. Respond briefly to the user request
+3. Any next steps the user might want to take
 
 IMPORTANT: 
-- Focus on the visual result and what the user can see
-- Mention the type of chart (bar chart, line chart, pie chart, etc.)
-- Explain any interactive features (tooltips, legends, etc.)
-- Be enthusiastic about the visualization created
-- Suggest possible improvements or variations
+- Write as if you are directly speaking to the user
 """
         
         # Call LLM to generate response
@@ -577,7 +844,8 @@ class CodingAgent:
         self.main_agent = MainDecisionAgent()
         self.actions = {
             "edit_file": EditFileAction(),
-            "semantic_search": SemanticSearchAction(),
+            "simple_report": SimpleReportAction(),
+            "other_request": OtherRequestAction(),
         }
         self.format_response = FormatResponseAction()
         
@@ -609,7 +877,8 @@ class CodingAgent:
                 # Get decision from main agent
                 decision = self.main_agent.analyze_and_decide(
                     user_query=user_query,
-                    history=shared_state["history"]
+                    history=shared_state["history"],
+                    working_dir=self.working_dir
                 )
                 
                 tool = decision["tool"]
@@ -631,7 +900,7 @@ class CodingAgent:
                 # Handle finish action
                 if tool == "finish":
                     logger.info("CodingAgent: Finishing and generating response")
-                    final_response = self.format_response.execute(shared_state["history"])
+                    final_response = self.format_response.execute(shared_state["history"], user_query)
                     return final_response
                 
                 # Execute the selected action
@@ -641,6 +910,16 @@ class CodingAgent:
                         # Update result in history
                         shared_state["history"][-1]["result"] = result
                         logger.info(f"CodingAgent: Action {tool} completed successfully")
+                        
+                        # For simple_report and other_request, finish immediately after execution
+                        if tool in ["simple_report", "other_request"]:
+                            logger.info(f"CodingAgent: {tool} completed, finishing with direct response")
+                            # Return the response directly from the action result
+                            if result.get("success") and "response" in result:
+                                return result["response"]
+                            else:
+                                return self.format_response.execute(shared_state["history"], user_query)
+                        
                     except Exception as e:
                         error_result = {
                             "success": False,
@@ -671,28 +950,5 @@ class CodingAgent:
         
         # If we've reached max iterations without finishing
         logger.warning(f"CodingAgent: Reached maximum iterations ({max_iterations})")
-        final_response = self.format_response.execute(shared_state["history"])
+        final_response = self.format_response.execute(shared_state["history"], user_query)
         return final_response
-
-# Create the main coding agent instance
-coding_agent = CodingAgent()
-
-# Example usage function
-def run_coding_agent(user_query: str, working_dir: str = "") -> str:
-    """
-    Convenience function to run the coding agent with a user query.
-    
-    Args:
-        user_query: The user's request
-        working_dir: Optional working directory for file operations
-        
-    Returns:
-        Final response from the agent
-    """
-    agent = CodingAgent(working_dir=working_dir)
-    return agent.process_request(user_query)
-
-# Example usage:
-# if __name__ == "__main__":
-#     response = run_coding_agent("List all Python files in the current directory")
-#     print(response)
