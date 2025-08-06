@@ -24,9 +24,9 @@ logger.addHandler(file_handler)
 cache_file = "llm_cache.json"
 
 # Learn more about calling the LLM: https://the-pocket.github.io/PocketFlow/utility_function/llm.html
-def call_llm(prompt: str, use_cache: bool = False) -> str:
+def call_llm(system_prompt: str, user_prompt: str, use_cache: bool = False) -> str:
     # Log the prompt
-    logger.info(f"PROMPT: {prompt}")
+    logger.info(f"USER PROMPT: {user_prompt}")
     
     # # Check cache if enabled
     # if use_cache:
@@ -50,7 +50,10 @@ def call_llm(prompt: str, use_cache: bool = False) -> str:
     )
     response = client.chat.completions.create(
         model=os.getenv("OPENAI_MODEL", "gpt-4o-mini-2024-07-18"),
-        messages=[{"role": "user", "content": prompt}],
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
         max_tokens=4000,
         temperature=0.4
     )

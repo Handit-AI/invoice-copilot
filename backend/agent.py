@@ -65,7 +65,7 @@ def load_invoice_data() -> Dict[str, Any]:
         logger.error(f"Error loading invoice data: {str(e)}")
         return {}
 
-def format_history_summary(history: List[Dict[str, Any]]) -> str:
+def format_history_summary(history: List[Dict[str, Any]], execution_id: str = None) -> str:
     if not history:
         return "No previous actions."
     
@@ -117,6 +117,17 @@ def format_history_summary(history: List[Dict[str, Any]]) -> str:
         
         # Add separator between actions
         history_str += "\n" if i < len(history) - 1 else ""
+
+           # Track the llm usage with Handit.ai
+        if execution_id:
+            tracker.track_node(
+                input=history,
+                output=history_str,
+                node_name="format_history_summary",
+                agent_name="invoice_copilot",
+                node_type="tool",
+                execution_id=execution_id
+            )
     
     return history_str
 
@@ -124,18 +135,16 @@ def format_history_summary(history: List[Dict[str, Any]]) -> str:
 # Main Decision Agent
 #############################################
 class MainDecisionAgent:
-    def analyze_and_decide(self, user_query: str, history: List[Dict[str, Any]], working_dir: str = "") -> Dict[str, Any]:
+    def analyze_and_decide(self, user_query: str, execution_id: str, history: List[Dict[str, Any]], working_dir: str = "") -> Dict[str, Any]:
         logger.info(f"MainDecisionAgent: Analyzing user query: {user_query}")
 
         # Get the working directory from the params
         working_dir = working_dir
         # Format history using the utility function
-        history_str = format_history_summary(history)
+        history_str = format_history_summary(history, execution_id)
         
         # Create prompt for the LLM using YAML instead of JSON
         system_prompt = f"""You are a professional report and data visualization specialist. Given the following request, decide which tool to use from the available options.
-
-User request: {user_query}
 
 Here are the actions you performed:
 {history_str}
@@ -199,7 +208,21 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
 """
         
         # Call LLM to decide action
-        response = call_llm(system_prompt)
+        response = call_llm(system_prompt, user_query)
+
+         # Track the llm usage with Handit.ai
+        if execution_id:
+            tracker.track_node(
+                input={
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_query
+                },
+                output=response,
+                node_name="main_decision_agent",
+                agent_name="invoice_copilot",
+                node_type="llm",
+                execution_id=execution_id
+            )
 
         # Look for YAML structure in the response
         yaml_content = ""
@@ -300,13 +323,9 @@ class SimpleReportAction:
                 }
             
             # Generate a prompt for the LLM to handle simple reports
-            prompt = f"""
+            system_prompt = f"""
 You are a professional report specialist. The user has made a simple request that doesn't require graphs or complex visualizations.
 Answer the user's request based on the provided data processed
-
-User request: {user_request}
-
-Data processed: {json.dumps(invoice_data, indent=2)}
 
 Provide a clear, concise response to the user's request. 
 
@@ -321,23 +340,31 @@ GUIDELINES:
 Generate a helpful response that directly addresses the user's request.
 """
             
+
+            user_prompt = f"""
+User request: {user_request}
+
+Data processed: {json.dumps(invoice_data, indent=2)}
+"""
+
+
             # Call LLM to generate response
             response = call_llm(
-                prompt
+                system_prompt, 
+                user_prompt
             )
             
             # Track the tool usage with Handit.ai
             if execution_id:
                 tracker.track_node(
                     input={
-                        "system_prompt": prompt,
-                        "user_prompt": user_request,
+                        "system_prompt": system_prompt,
+                        "user_prompt": user_prompt,
                         "invoice_data_count": len(invoice_data),
-                        "tool_name": "simple_report"
                     },
                     output=response,
                     node_name="simple_report_action",
-                    agent_name="invoice_copilot_agent",
+                    agent_name="invoice_copilot",
                     node_type="llm",
                     execution_id=execution_id
                 )
@@ -365,10 +392,8 @@ class OtherRequestAction:
         logger.info(f"OtherRequestAction: Processing other request: {user_request}")
         
         # Generate a prompt for the LLM to handle other requests
-        prompt = f"""
+        system_prompt = f"""
 You are a professional report specialist. The user has made a request that is not directly related to reports, graphs, or statistics data.
-
-User request: {user_request}
 
 Please respond politely and professionally, explaining that you specialize in:
 - Creating reports and data visualizations
@@ -383,21 +408,20 @@ Be helpful and suggest specific ways you could assist them with business reporti
         
         # Call LLM to generate response
         response = call_llm(
-            prompt
-
+            system_prompt,
+            user_request
         )
         
         # Track the tool usage with Handit.ai
         if execution_id:
             tracker.track_node(
                 input={
-                    "system_prompt": prompt,
+                    "system_prompt": system_prompt,
                     "user_prompt": user_request,
-                    "tool_name": "other_request"
                 },
                 output=response,
                 node_name="other_request_action",
-                agent_name="invoice_copilot_agent",
+                agent_name="invoice_copilot",
                 node_type="llm",
                 execution_id=execution_id
             )
@@ -461,19 +485,11 @@ class EditFileAction:
             real_data = json.dumps(invoice_data, indent=2)
         
         # Generate a prompt for the LLM to create professional reports with charts
-        prompt = f"""
+        system_prompt = f"""
 You are a professional business report specialist. Your goal is to create comprehensive professional reports, data-driven reports with interactive charts using ONLY Recharts library.
 
 MANDATORY: ALWAYS REPLACE THE ENTIRE FILE CONTENT {file_content} - NO PARTIAL EDITS
 
-USER REQUEST: 
-{instructions}
-
-REPORT REQUIREMENTS:
-{chart_description}
-
-PROVIDED DATA:
-{real_data}
 
 Create a COMPLETE professional business report React component that REPLACES the entire file. Follow these guidelines:
 
@@ -712,9 +728,23 @@ MANDATORY RULES:
 - The end_line should be a specific number (like 200, 300, etc.) not "any quantity"
 """
         
+
+        user_prompt = f"""
+
+        USER REQUEST: 
+        {instructions}
+
+        REPORT REQUIREMENTS:
+        {chart_description}
+
+        PROVIDED DATA:
+        {real_data}
+"""
+
         # Call LLM to analyze
         response = call_llm(
-            prompt
+            system_prompt,
+            user_prompt
         )
         logger.info(f"EditFileAction: LLM response length: {len(response)}")
 
@@ -837,24 +867,23 @@ MANDATORY RULES:
             tracker.track_node(
                 input={
                     "target_file": target_file,
-                    "instructions": instructions,
                     "chart_description": chart_description,
                     "operations_count": len(sorted_ops),
                     "successful_operations": successful_ops,
                     "failed_operations": failed_ops,
-                    "tool_name": "edit_file",
-                    "system_prompt": prompt,
-                    "user_prompt": instructions
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_prompt
                 },
                 output={
                     "success": all_successful,
                     "operations": len(sorted_ops),
                     "successful_operations": successful_ops,
                     "failed_operations": failed_ops,
-                    "reasoning": reasoning
+                    "reasoning": reasoning, 
+                    "llm_response": response
                 },
                 node_name="edit_file_action",
-                agent_name="invoice_copilot_agent",
+                agent_name="invoice_copilot",
                 node_type="llm",
                 execution_id=execution_id
             )
@@ -869,20 +898,18 @@ MANDATORY RULES:
         }
 
 class FormatResponseAction:
-    def execute(self, history: List[Dict[str, Any]], user_query: str) -> str:
+    def execute(self, history: List[Dict[str, Any]], user_query: str, execution_id: str = None) -> str:
         # If no history, return a generic message
         if not history:
             return "No actions were performed."
         
         # Generate a summary of actions for the LLM using the utility function
-        actions_summary = format_history_summary(history)
+        actions_summary = format_history_summary(history, execution_id)
         
         # Prompt for the LLM to generate the final response
-        prompt = f"""
+        system_prompt = f"""
 You are a professional report and data visualization specialist. You have just performed a series of actions based on the 
 user's request. Summarize what you did in a clear, helpful response to the user.
-
-User request: {user_query}
 
 Here are the actions you performed:
 {actions_summary}
@@ -897,10 +924,27 @@ IMPORTANT:
 """
         
         # Call LLM to generate response
-        response = call_llm(prompt)
+        response = call_llm(system_prompt, user_query)
+
+
         
         logger.info(f"###### Final Response Generated ######\n{response}\n###### End of Response ######")
         
+
+      # Track the llm usage with Handit.ai
+        if execution_id:
+            tracker.track_node(
+                input={
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_query
+                },
+                output=response,
+                node_name="format_response_action",
+                agent_name="invoice_copilot",
+                node_type="llm",
+                execution_id=execution_id
+            )
+
         return response
 
 #############################################
@@ -931,7 +975,7 @@ class CodingAgent:
         logger.info(f"CodingAgent: Processing request: {user_query}")
         
         # Start Handit.ai tracing
-        tracing_response = tracker.start_tracing(agent_name="invoice_copilot_agent")
+        tracing_response = tracker.start_tracing(agent_name="invoice_copilot")
         execution_id = tracing_response.get("executionId")
         logger.info(f"Handit.ai tracing started with execution_id: {execution_id}")
         
@@ -951,6 +995,7 @@ class CodingAgent:
                 # Get decision from main agent
                 decision = self.main_agent.analyze_and_decide(
                     user_query=user_query,
+                    execution_id=execution_id,
                     history=shared_state["history"],
                     working_dir=self.working_dir
                 )
@@ -974,11 +1019,11 @@ class CodingAgent:
                 # Handle finish action
                 if tool == "finish":
                     logger.info("CodingAgent: Finishing and generating response")
-                    final_response = self.format_response.execute(shared_state["history"], user_query)
+                    final_response = self.format_response.execute(shared_state["history"], user_query, execution_id)
                     
                     # End Handit.ai tracing
                     try:
-                        tracker.end_tracing(execution_id=execution_id, agent_name="invoice_copilot_agent")
+                        tracker.end_tracing(execution_id=execution_id, agent_name="invoice_copilot")
                         logger.info(f"Handit.ai tracing ended for execution_id: {execution_id}")
                     except Exception as e:
                         logger.error(f"Error ending Handit.ai tracing: {str(e)}")
@@ -996,11 +1041,13 @@ class CodingAgent:
                         # For simple_report and other_request, finish immediately after execution
                         if tool in ["simple_report", "other_request"]:
                             logger.info(f"CodingAgent: {tool} completed, finishing with direct response")
+                            tracker.end_tracing(execution_id=execution_id, agent_name="invoice_copilot")
+                            logger.info(f"Handit.ai tracing ended for execution_id: {execution_id}")
                             # Return the response directly from the action result
                             if result.get("success") and "response" in result:
                                 return result["response"]
                             else:
-                                return self.format_response.execute(shared_state["history"], user_query)
+                                return self.format_response.execute(shared_state["history"], user_query, execution_id)
                         
                     except Exception as e:
                         error_result = {
@@ -1032,11 +1079,11 @@ class CodingAgent:
         
         # If we've reached max iterations without finishing
         logger.warning(f"CodingAgent: Reached maximum iterations ({max_iterations})")
-        final_response = self.format_response.execute(shared_state["history"], user_query)
+        final_response = self.format_response.execute(shared_state["history"], user_query, execution_id)
         
         # End Handit.ai tracing
         try:
-            tracker.end_tracing(execution_id=execution_id, agent_name="invoice_copilot_agent")
+            tracker.end_tracing(execution_id=execution_id, agent_name="invoice_copilot")
             logger.info(f"Handit.ai tracing ended for execution_id: {execution_id}")
         except Exception as e:
             logger.error(f"Error ending Handit.ai tracing: {str(e)}")
