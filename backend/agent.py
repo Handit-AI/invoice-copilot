@@ -330,6 +330,7 @@ Answer the user's request based on the provided data processed
 Provide a clear, concise response to the user's request. 
 
 GUIDELINES:
+- For math operations, like sums, averages, etc, be super accurate and precise
 - Focus on providing specific information requested
 - Use only the real data processed
 - Keep the response professional but straightforward
