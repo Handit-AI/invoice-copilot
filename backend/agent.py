@@ -229,11 +229,11 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
         if "```yaml" in response:
             yaml_blocks = response.split("```yaml")
             if len(yaml_blocks) > 1:
-                yaml_content = yaml_blocks[1].split("```")[0].strip()
+                yaml_content = yaml_blocks[1].split("```\n")[0].strip()
         elif "```yml" in response:
             yaml_blocks = response.split("```yml")
             if len(yaml_blocks) > 1:
-                yaml_content = yaml_blocks[1].split("```")[0].strip()
+                yaml_content = yaml_blocks[1].split("```\n")[0].strip()
         elif "```" in response:
             # Try to extract from generic code block
             yaml_blocks = response.split("```")
@@ -254,7 +254,7 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
             if decision["tool"] != "finish":
                 assert "params" in decision, "Parameters are missing"
             else:
-                decision["params"] = {}
+                decision["params"] = {{}}
             
             return decision
         else:
@@ -269,15 +269,15 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
 # class ListDirAction:
 #     def execute(self, params: Dict[str, Any], working_dir: str = "") -> Dict[str, Any]:
 #         path = params.get("relative_workspace_path", ".")
-        
+#         
 #         # Ensure path is relative to working directory
 #         full_path = os.path.join(working_dir, path) if working_dir else path
-        
+#         
 #         logger.info(f"ListDirAction: Listing directory {full_path}")
-        
+#         
 #         # Call list_dir utility which returns (success, tree_str)
 #         success, tree_str = list_dir(full_path)
-        
+#         
 #         return {
 #             "success": success,
 #             "tree_visualization": tree_str
@@ -288,15 +288,15 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
 #         file_path = params.get("target_file")
 #         if not file_path:
 #             raise ValueError("Missing target_file parameter")
-        
+#         
 #         # Ensure path is relative to working directory
 #         full_path = os.path.join(working_dir, file_path) if working_dir else file_path
-        
+#         
 #         logger.info(f"DeleteFileAction: Deleting file {full_path}")
-        
+#         
 #         # Call delete_file utility which returns (success, message)
 #         success, message = delete_file(full_path)
-        
+#         
 #         return {
 #             "success": success,
 #             "message": message
@@ -324,30 +324,50 @@ class SimpleReportAction:
             
             # Generate a prompt for the LLM to handle simple reports
             system_prompt = f"""
-You are a professional report specialist. The user has made a simple request that doesn't require graphs or complex visualizations.
-Answer the user's request based on the provided data processed
+You are a professional report specialist. The user has made a simple request that doesn't require graphs or complex visualizations. Your task is to answer the user's request based on the provided data processed.
 
-Provide a clear, concise response to the user's request. 
+### Guidelines for Response:
+1. **Response Format:**
+   - Provide your response in a clear summary statement followed by a bullet-point list for detailed information.
+   
+2. **Use of Data:**
+   - Focus on providing specific information requested, using only the real data processed.
 
-GUIDELINES:
-- For math operations, like sums, averages, etc, be super accurate and precise
-- Focus on providing specific information requested
-- Use only the real data processed
-- Keep the response professional but straightforward
-- No graphs or visualizations needed
-- Provide actionable insights when possible
-- Suggest next steps to the user when possible
+3. **Clarity and Professionalism:**
+   - Keep the response professional but straightforward, ensuring clarity and coherence.
 
-Generate a helpful response that directly addresses the user's request.
+4. **Actionable Insights:**
+   - Provide actionable insights when possible and suggest relevant next steps based on the user's needs.
+
+5. **Invoice Processing:**
+   - If applicable, process multiple invoices and summarize their amounts in a clear format. Include a clear numerical total followed by a breakdown.
+
+6. **Calculation Steps:**
+   - Explicitly outline any calculation steps taken to arrive at totals, ensuring transparency in your response.
+
+### Examples of Acceptable Responses:
+- **Example 1:** 
+   - Summary: "The total amount due for the processed invoices is $500."
+   - Breakdown:
+     - Invoice #001: $200
+     - Invoice #002: $300
+   - Suggested Next Steps: "Please proceed with the payment by the due date."
+
+- **Example 2:** 
+   - Summary: "The total revenue generated this month is $1,200."
+   - Breakdown:
+     - Product A: $700
+     - Product B: $500
+   - Suggested Next Steps: "Consider tracking sales trends for next month to identify areas for growth."
+
+Generate a helpful response that directly addresses the user's request while adhering to these structured guidelines.
 """
             
-
             user_prompt = f"""
 User request: {user_request}
 
 Data processed: {json.dumps(invoice_data, indent=2)}
 """
-
 
             # Call LLM to generate response
             response = call_llm(
@@ -729,9 +749,7 @@ MANDATORY RULES:
 - The end_line should be a specific number (like 200, 300, etc.) not "any quantity"
 """
         
-
         user_prompt = f"""
-
         USER REQUEST: 
         {instructions}
 
@@ -754,12 +772,12 @@ MANDATORY RULES:
         if "```yaml" in response:
             yaml_blocks = response.split("```yaml")
             if len(yaml_blocks) > 1:
-                yaml_content = yaml_blocks[1].split("```")[0].strip()
+                yaml_content = yaml_blocks[1].split("```\n")[0].strip()
                 logger.info("EditFileAction: Found ```yaml block")
         elif "```yml" in response:
             yaml_blocks = response.split("```yml")
             if len(yaml_blocks) > 1:
-                yaml_content = yaml_blocks[1].split("```")[0].strip()
+                yaml_content = yaml_blocks[1].split("```\n")[0].strip()
                 logger.info("EditFileAction: Found ```yml block")
         elif "```" in response:
             # Try to extract from generic code block
@@ -854,7 +872,7 @@ MANDATORY RULES:
                     content=op["replacement"]
                 )
                 logger.info(f"EditFileAction: Partial edit result - success: {success}, message: {message}")
-    
+        
             details.append({"success": success, "message": message})
             if success:
                 successful_ops += 1
@@ -928,10 +946,8 @@ IMPORTANT:
         response = call_llm(system_prompt, user_query)
 
 
-        
         logger.info(f"###### Final Response Generated ######\n{response}\n###### End of Response ######")
         
-
       # Track the llm usage with Handit.ai
         if execution_id:
             tracker.track_node(
@@ -1090,3 +1106,4 @@ class CodingAgent:
             logger.error(f"Error ending Handit.ai tracing: {str(e)}")
         
         return final_response
+
