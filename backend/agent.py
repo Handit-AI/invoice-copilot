@@ -144,68 +144,7 @@ class MainDecisionAgent:
         history_str = format_history_summary(history, execution_id)
         
         # Create prompt for the LLM using YAML instead of JSON
-        system_prompt = f"""You are a professional report and data visualization specialist. Given the following request, decide which tool to use from the available options.
-
-Here are the actions you performed:
-{history_str}
-
-Available tools:
-1. edit_file: Create or edit professional reports with data visualizations, if graphs are needed to complete the user request
-   - Parameters: target_file, instructions, chart_description
-     target_file: DynamicWorkspace.tsx (this file is in the working directory: {working_dir})
-     instructions: User request
-     chart_description: A detailed description of charts are needed for the report.
-   - Example:
-     tool: edit_file
-     reason: I need to create a professional report with real data, and charts are needed for the report, and insights.
-     params:
-       target_file: DynamicWorkspace.tsx
-       instructions: User request
-       chart_description: 
-         Professional business report featuring:
-         - Expenses trends using LineChart from Recharts
-         - Category breakdown using PieChart from Recharts
-         - Monthly comparison using BarChart from Recharts
-         - Key metrics cards with real numbers
-         - Responsive design with professional styling
-
-2. simple_report: ONLY If the user wants to know especific information about the data, the user resquest is simple and graphs are not needed to complete the user request
-   - Parameters: user_request
-     user_request: User request
-   - Example:
-     tool: simple_report
-     reason: I need to answer just an specific information, and the user request is simple and graphs are not needed
-     params:
-       user_request: User request
-         
-3. other_request: If the user request is not related to the report, graphs, statistics data, you can use this tool to do other requests.
-   - Parameters: user_request
-     user_request: User request
-   - Example:
-     tool: other_request
-     reason: I need to gently tell the user that I can only help with the report, graphs, statistics data, and other requests related to the report, graphs, statistics data.
-     params:
-       user_request: User request
-
-4. finish: Complete the task and provide final response
-   - No parameters required
-   - Example:
-     tool: finish
-     reason: I have successfully completed all the user request.
-     params: {{}}
-
-Respond with a YAML object containing:
-```yaml
-tool: one of: edit_file, simple_report, other_request, finish
-reason:
-  detailed explanation of why you chose this tool and what you intend to do
-  if you chose finish, explain why no more actions are needed
-params:
-  # parameters specific to the chosen tool
-```
-
-If you believe no more actions are needed, use "finish" as the tool and explain why in the reason.
-"""
+        system_prompt = f"""You are a professional report and data visualization specialist. Given the following request, decide which tool to use from the available options.\n\nHere are the actions you performed:\n{history_str}\n\nAvailable tools:\n1. edit_file: Create or edit professional reports with data visualizations, if graphs are needed to complete the user request\n   - Parameters: target_file, instructions, chart_description\n     target_file: DynamicWorkspace.tsx (this file is in the working directory: {working_dir})\n     instructions: User request\n     chart_description: A detailed description of charts are needed for the report.\n   - Example:\n     tool: edit_file\n     reason: I need to create a professional report with real data, and charts are needed for the report, and insights.\n     params:\n       target_file: DynamicWorkspace.tsx\n       instructions: User request\n       chart_description: \n         Professional business report featuring:\n         - Expenses trends using LineChart from Recharts\n         - Category breakdown using PieChart from Recharts\n         - Monthly comparison using BarChart from Recharts\n         - Key metrics cards with real numbers\n         - Responsive design with professional styling\n\n2. simple_report: ONLY If the user wants to know especific information about the data, the user resquest is simple and graphs are not needed to complete the user request\n   - Parameters: user_request\n     user_request: User request\n   - Example:\n     tool: simple_report\n     reason: I need to answer just an specific information, and the user request is simple and graphs are not needed\n     params:\n       user_request: User request\n         \n3. other_request: If the user request is not related to the report, graphs, statistics data, you can use this tool to do other requests.\n   - Parameters: user_request\n     user_request: User request\n   - Example:\n     tool: other_request\n     reason: I need to gently tell the user that I can only help with the report, graphs, statistics data, and other requests related to the report, graphs, statistics data.\n     params:\n       user_request: User request\n\n4. finish: Complete the task and provide final response\n   - No parameters required\n   - Example:\n     tool: finish\n     reason: I have successfully completed all the user request.\n     params: {{}}\n\nRespond with a YAML object containing:\n```yaml\ntool: one of: edit_file, simple_report, other_request, finish\nreason:\n  detailed explanation of why you chose this tool and what you intend to do\n  if you chose finish, explain why no more actions are needed\nparams:\n  # parameters specific to the chosen tool\n```\n\nIf you believe no more actions are needed, use "finish" as the tool and explain why in the reason.\n"""
         
         # Call LLM to decide action
         response = call_llm(system_prompt, user_query)
@@ -229,11 +168,11 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
         if "```yaml" in response:
             yaml_blocks = response.split("```yaml")
             if len(yaml_blocks) > 1:
-                yaml_content = yaml_blocks[1].split("```")[0].strip()
+                yaml_content = yaml_blocks[1].split("```") [0].strip()
         elif "```yml" in response:
             yaml_blocks = response.split("```yml")
             if len(yaml_blocks) > 1:
-                yaml_content = yaml_blocks[1].split("```")[0].strip()
+                yaml_content = yaml_blocks[1].split("```") [0].strip()
         elif "```" in response:
             # Try to extract from generic code block
             yaml_blocks = response.split("```")
@@ -254,8 +193,7 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
             if decision["tool"] != "finish":
                 assert "params" in decision, "Parameters are missing"
             else:
-                decision["params"] = {}
-            
+                decision["params"] = {}            
             return decision
         else:
             raise ValueError("No YAML object found in response")
@@ -340,14 +278,12 @@ GUIDELINES:
 
 Generate a helpful response that directly addresses the user's request.
 """
-            
 
             user_prompt = f"""
 User request: {user_request}
 
 Data processed: {json.dumps(invoice_data, indent=2)}
 """
-
 
             # Call LLM to generate response
             response = call_llm(
@@ -718,20 +654,9 @@ operations:
           {{/* You can add tables, descriptions, insights, etc., whatever you need, but only in the same language, and dont use external libraries, only what is imported */}}
         );
       }}
-```
-
-MANDATORY RULES:
-- ALWAYS replace the entire file (start_line: 1, end_line: 200 or more lines as needed)
-- Use ONLY real data extracted from the provided invoice JSON
-- Calculate actual metrics from the invoice data
-- NO sample/fake data whatsoever
-- Create meaningful visualizations based on real invoice information
-- The end_line should be a specific number (like 200, 300, etc.) not "any quantity"
 """
         
-
         user_prompt = f"""
-
         USER REQUEST: 
         {instructions}
 
@@ -754,12 +679,12 @@ MANDATORY RULES:
         if "```yaml" in response:
             yaml_blocks = response.split("```yaml")
             if len(yaml_blocks) > 1:
-                yaml_content = yaml_blocks[1].split("```")[0].strip()
+                yaml_content = yaml_blocks[1].split("```") [0].strip()
                 logger.info("EditFileAction: Found ```yaml block")
         elif "```yml" in response:
             yaml_blocks = response.split("```yml")
             if len(yaml_blocks) > 1:
-                yaml_content = yaml_blocks[1].split("```")[0].strip()
+                yaml_content = yaml_blocks[1].split("```") [0].strip()
                 logger.info("EditFileAction: Found ```yml block")
         elif "```" in response:
             # Try to extract from generic code block
@@ -854,7 +779,7 @@ MANDATORY RULES:
                     content=op["replacement"]
                 )
                 logger.info(f"EditFileAction: Partial edit result - success: {success}, message: {message}")
-    
+        
             details.append({"success": success, "message": message})
             if success:
                 successful_ops += 1
@@ -927,11 +852,9 @@ IMPORTANT:
         # Call LLM to generate response
         response = call_llm(system_prompt, user_query)
 
-
         
         logger.info(f"###### Final Response Generated ######\n{response}\n###### End of Response ######")
         
-
       # Track the llm usage with Handit.ai
         if execution_id:
             tracker.track_node(
@@ -1090,3 +1013,4 @@ class CodingAgent:
             logger.error(f"Error ending Handit.ai tracing: {str(e)}")
         
         return final_response
+
