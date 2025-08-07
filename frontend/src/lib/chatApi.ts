@@ -35,7 +35,7 @@ export async function sendChatMessage(
     const requestBody: ChatRequest = {
       message,
       workspace_dir: workspaceDir,
-      max_iterations: 10
+      max_iterations: 3
     };
 
     const response = await fetch(`${BACKEND_URL}/api/chat/message`, {

@@ -1,217 +1,370 @@
-# InvoiceCopilot Frontend
+# Invoice Copilot Frontend
 
-A modern Next.js application for AI-powered data visualization and chart generation.
+A modern React/Next.js frontend for the Invoice Copilot AI system that provides an intuitive interface for chatting with your invoices and generating interactive visualizations in real-time.
 
 ## 🚀 Features
 
-- **Real-time Chat Interface**: Interact with AI to generate charts and visualizations
-- **Dynamic Visualizations**: AI-generated charts, tables, and reports
-- **Server-Side Rendering**: Optimized performance with Next.js 14
-- **Clean Split Layout**: Chat on left, generated visualizations on right
-- **Responsive Design**: Works on desktop, tablet, and mobile
-- **TypeScript**: Full type safety throughout the application
+- **Real-Time Chat Interface**: Conversational AI interface for invoice analysis
+- **Dynamic Workspace**: Live generation of React components with charts and visualizations
+- **Drag & Drop Upload**: Intuitive file upload with progress tracking
+- **Interactive Visualizations**: Professional charts using Recharts library
+- **Responsive Design**: Modern UI with Tailwind CSS and Framer Motion
+- **TypeScript Support**: Full type safety and IntelliSense
+- **Real-Time Updates**: Live workspace updates as AI generates content
 
-## 🛠️ Tech Stack
+## 🏗️ Architecture
 
-- **Framework**: Next.js 14 with App Router
-- **Styling**: Tailwind CSS with custom design system
-- **State Management**: React Context API + useReducer
-- **UI Components**: Custom component library with class-variance-authority
-- **Icons**: Lucide React
-- **Animations**: Framer Motion
-- **Type Safety**: TypeScript
+```
+User Interface → Chat Area → AI Backend → Dynamic Workspace
+     ↓              ↓           ↓              ↓
+  File Upload → Message Input → API Calls → React Components
+```
 
-## 📁 Project Structure
+### Core Components
+
+- **MainLayout**: Main application layout with chat and workspace areas
+- **ChatArea**: Conversational interface with message history
+- **WorkspaceArea**: Dynamic content display with charts and visualizations
+- **DragDropOverlay**: File upload interface with progress tracking
+- **DynamicWorkspace**: Real-time React component generation
+
+## 📋 Prerequisites
+
+- Node.js 18+ 
+- npm or yarn
+- Backend service running (Invoice Copilot Backend)
+
+## 🛠️ Installation
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/Handit-AI/invoice-copilot.git
+cd invoice-copilot/frontend
+```
+
+### 2. Install Dependencies
+
+```bash
+# Using npm
+npm install
+
+# Using yarn
+yarn install
+```
+
+### 3. Environment Configuration
+
+```bash
+# Copy environment example
+cp .env.example .env.local
+
+# Edit environment variables
+nano .env.local
+```
+
+### 4. Configure Environment Variables
+
+Edit the `.env.local` file:
+
+```env
+# Backend Configuration
+NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+NEXT_PUBLIC_TSX_AGENT_URL=http://localhost:8000
+
+# Application Settings
+NEXT_PUBLIC_APP_ENV=development
+NEXT_PUBLIC_APP_VERSION=1.0.0
+NEXT_PUBLIC_APP_NAME=Invoice Copilot
+
+# Feature Flags
+NEXT_PUBLIC_ENABLE_DYNAMIC_CONTENT=true
+NEXT_PUBLIC_ENABLE_REALTIME_UPDATES=true
+NEXT_PUBLIC_ENABLE_CHAT=true
+NEXT_PUBLIC_ENABLE_FILE_UPLOAD=true
+```
+
+## 🚀 Running the Application
+
+### Development Mode
+
+```bash
+# Start development server
+npm run dev
+
+# Or with yarn
+yarn dev
+```
+
+The application will start on `http://localhost:3000`
+
+### Production Build
+
+```bash
+# Build for production
+npm run build
+
+# Start production server
+npm start
+```
+
+## 📚 Project Structure
 
 ```
 frontend/
 ├── src/
-│   ├── app/                    # Next.js App Router
-│   │   ├── globals.css         # Global styles
-│   │   ├── layout.tsx          # Root layout
-│   │   └── page.tsx            # Home page
+│   ├── app/                    # Next.js app directory
+│   │   ├── layout.tsx         # Root layout
+│   │   ├── page.tsx           # Home page
+│   │   └── globals.css        # Global styles
 │   ├── components/             # React components
-│   │   ├── ui/                 # Base UI components
-│   │   ├── layout/             # Layout components
-│   │   ├── chat/               # Chat interface
-│   │   └── workspace/          # Visualization area
-│   ├── contexts/               # React contexts
-│   │   └── AppContext.tsx      # Main app state
-│   ├── lib/                    # Utilities and helpers
-│   │   └── utils.ts            # Common utilities
-│   └── types/                  # TypeScript type definitions
-│       └── index.ts            # Main types
-├── public/                     # Static assets
+│   │   ├── chat/              # Chat interface
+│   │   │   ├── ChatArea.tsx   # Main chat component
+│   │   │   └── NextStepsAnimation.tsx
+│   │   ├── workspace/         # Workspace area
+│   │   │   ├── WorkspaceArea.tsx
+│   │   │   └── DynamicWorkspace.tsx
+│   │   ├── upload/            # File upload
+│   │   │   └── DragDropOverlay.tsx
+│   │   ├── layout/            # Layout components
+│   │   │   └── MainLayout.tsx
+│   │   └── ui/                # UI components
+│   │       ├── Button.tsx
+│   │       ├── Card.tsx
+│   │       ├── Input.tsx
+│   │       ├── Textarea.tsx
+│   │       └── LoadingSpinner.tsx
+│   ├── contexts/              # React contexts
+│   │   └── AppContext.tsx     # Global app state
+│   ├── lib/                   # Utility libraries
+│   │   ├── chatApi.ts         # Chat API integration
+│   │   ├── documentApi.ts     # Document processing API
+│   │   ├── tsxAgent.ts        # TSX Agent integration
+│   │   └── utils.ts           # Utility functions
+│   ├── types/                 # TypeScript types
+│   │   └── index.ts           # Type definitions
+│   ├── hooks/                 # Custom React hooks
+│   └── assets/                # Static assets
+│       └── animations/        # Lottie animations
+├── public/                    # Public assets
 ├── package.json               # Dependencies
-├── tailwind.config.ts         # Tailwind configuration
+├── next.config.js             # Next.js configuration
+├── tailwind.config.ts         # Tailwind CSS configuration
 ├── tsconfig.json              # TypeScript configuration
-└── next.config.js             # Next.js configuration
+└── env.example                # Environment variables template
 ```
 
-## 🚦 Getting Started
+## 💬 Usage Examples
 
-### Prerequisites
+### 1. Chat with Your Invoices
 
-- Node.js 18.17 or later
-- npm, yarn, or pnpm
+```typescript
+// Send a message to the AI
+const response = await sendChatMessage(
+  "Create a bar chart of monthly expenses",
+  "frontend/src/components/workspace"
+);
+```
 
-### Installation
+### 2. Upload and Process Documents
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd invoice-copilot/frontend
-   ```
+```typescript
+// Upload invoice files
+const result = await uploadAndProcessDocuments(
+  files,
+  'processed',
+  (progress) => {
+    console.log('Progress:', progress);
+  }
+);
+```
 
-2. **Install dependencies**
-   ```bash
-   npm install
-   # or
-   yarn install
-   # or
-   pnpm install
-   ```
+### 3. Generate Dynamic Content
 
-3. **Run the development server**
-   ```bash
-   npm run dev
-   # or
-   yarn dev
-   # or
-   pnpm dev
-   ```
+```typescript
+// Enable dynamic workspace
+setWorkspaceContent('expenses-report');
+```
 
-4. **Open your browser**
-   Navigate to [http://localhost:3000](http://localhost:3000)
-
-## 🏗️ Architecture
-
-### Component Architecture
-
-- **Server Components**: Used by default for better performance
-- **Client Components**: Only when interactivity is needed (marked with 'use client')
-- **Separation of Concerns**: Clear separation between UI, business logic, and state
-
-### State Management
-
-- **Global State**: React Context API with useReducer for complex state
-- **Local State**: useState for component-specific state
-- **No Redux**: Context API is sufficient for this application size
-
-### Styling
-
-- **Tailwind CSS**: Utility-first CSS framework
-- **Custom Design System**: Consistent colors, spacing, and typography
-- **Component Variants**: Using class-variance-authority for component variations
-- **Responsive Design**: Mobile-first approach
-
-## 🎨 Design System
-
-### Colors
-- **Primary**: Blue-based theme
-- **Background**: Light/white theme as requested
-- **Text**: Gray scale for proper contrast
-- **Status**: Green (success), Red (error), Yellow (warning)
-
-### Components
-- **Button**: Multiple variants (default, outline, ghost, etc.)
-- **Card**: Container component with variants
-- **Input/Textarea**: Form components with validation
-- **Loading**: Spinners and skeleton loaders
-
-## 🔄 Development Workflow
-
-### Code Organization
-
-1. **Components**: Small, focused, reusable
-2. **Hooks**: Custom hooks for reusable logic
-3. **Utils**: Pure utility functions
-4. **Types**: Comprehensive TypeScript definitions
-
-### Best Practices
-
-- Use Server Components when possible
-- Client Components only for interactivity
-- Proper error boundaries
-- Accessibility considerations
-- Performance optimization
-
-## 🔌 Backend Integration
-
-The frontend is designed to integrate with a Python FastAPI backend:
-
-- **REST API**: Standard HTTP requests for data operations
-- **WebSocket**: Real-time updates for chart generation
-- **File Upload**: Multipart form data for invoice uploads
-- **Streaming**: Server-sent events for real-time AI responses
-
-## 🎯 Key Features Implementation
+## 🎨 UI Components
 
 ### Chat Interface
-- Real-time messaging with AI
-- Typing indicators and loading states
-- Message history and session management
-- Quick action buttons for common chart types
 
-### Dynamic Visualizations
-- Chart generation from natural language
-- Real-time updates during generation
-- Export capabilities
-- Interactive chart preview
+The chat area provides:
+- **Real-time messaging** with the AI agent
+- **Message history** with user and assistant messages
+- **Quick actions** for common requests
+- **Loading states** with animated indicators
+- **Auto-scroll** to latest messages
 
-## 🚀 Deployment
+### Workspace Area
 
-### Build for Production
+The workspace displays:
+- **Dynamic React components** generated by the AI
+- **Interactive charts** using Recharts library
+- **Real-time updates** as content is generated
+- **Export options** for charts and reports
+- **Invoice icons** showing uploaded files
 
-```bash
-npm run build
-npm run start
-```
+### File Upload
 
-### Deployment Options
-
-- **Vercel**: Recommended for Next.js applications
-- **Netlify**: Alternative static hosting
-- **Docker**: Containerized deployment
-- **Traditional Hosting**: Any Node.js hosting provider
+The upload system includes:
+- **Drag & drop** interface for files
+- **Progress tracking** with visual indicators
+- **Multiple file support** for batch processing
+- **Error handling** with user feedback
+- **Processing stages** (upload, OCR, vector storage)
 
 ## 🔧 Configuration
 
 ### Environment Variables
 
-Create a `.env.local` file:
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NEXT_PUBLIC_BACKEND_URL` | Yes | Backend API URL |
+| `NEXT_PUBLIC_TSX_AGENT_URL` | No | TSX Agent URL |
+| `NEXT_PUBLIC_APP_ENV` | No | Environment (dev/prod) |
+| `NEXT_PUBLIC_DEBUG` | No | Debug mode |
+
+### Feature Flags
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws
+# Enable/disable features
+NEXT_PUBLIC_ENABLE_DYNAMIC_CONTENT=true
+NEXT_PUBLIC_ENABLE_REALTIME_UPDATES=true
+NEXT_PUBLIC_ENABLE_CHAT=true
+NEXT_PUBLIC_ENABLE_FILE_UPLOAD=true
 ```
 
-### Tailwind Configuration
+## 🎯 Key Features
 
-The design system can be customized in `tailwind.config.ts`:
+### 1. Real-Time Chat
+- **Conversational AI**: Natural language interface
+- **Message History**: Persistent chat sessions
+- **Quick Actions**: Predefined common requests
+- **Loading States**: Visual feedback during processing
 
-- Colors
-- Typography
-- Spacing
-- Breakpoints
-- Custom components
+### 2. Dynamic Workspace
+- **Live Generation**: Real-time React component creation
+- **Interactive Charts**: Professional data visualizations
+- **Responsive Design**: Works on all screen sizes
+- **Export Options**: Download charts and reports
 
-## 📝 Scripts
+### 3. File Processing
+- **Drag & Drop**: Intuitive file upload
+- **Progress Tracking**: Visual progress indicators
+- **Batch Processing**: Handle multiple files
+- **Error Handling**: Graceful error recovery
 
-- `npm run dev`: Start development server
-- `npm run build`: Build for production
-- `npm run start`: Start production server
-- `npm run lint`: Run ESLint
-- `npm run type-check`: Run TypeScript compiler
+### 4. Modern UI/UX
+- **Tailwind CSS**: Utility-first styling
+- **Framer Motion**: Smooth animations
+- **Lucide Icons**: Beautiful iconography
+- **Responsive Design**: Mobile-first approach
+
+## 🧪 Development
+
+### Available Scripts
+
+```bash
+# Development
+npm run dev          # Start development server
+npm run build        # Build for production
+npm run start        # Start production server
+
+# Code Quality
+npm run lint         # Run ESLint
+npm run type-check   # TypeScript type checking
+```
+
+### Development Workflow
+
+1. **Start Backend**: Ensure the backend is running on port 8000
+2. **Start Frontend**: Run `npm run dev`
+3. **Open Browser**: Navigate to `http://localhost:3000`
+4. **Upload Files**: Drag and drop invoice files
+5. **Chat with AI**: Ask questions about your invoices
+6. **View Results**: See real-time visualizations
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+1. **Backend Connection Error**
+   ```bash
+   # Check if backend is running
+   curl http://localhost:8000/health
+   ```
+
+2. **Environment Variables**
+   ```bash
+   # Verify .env.local exists
+   ls -la .env.local
+   ```
+
+3. **Port Already in Use**
+   ```bash
+   # Kill process on port 3000
+   lsof -ti:3000 | xargs kill -9
+   ```
+
+4. **Build Errors**
+   ```bash
+   # Clear Next.js cache
+   rm -rf .next
+   npm run build
+   ```
+
+### Debug Mode
+
+```bash
+# Enable debug logging
+NEXT_PUBLIC_DEBUG=true npm run dev
+```
+
+## 📈 Performance
+
+### Optimization Features
+
+- **Next.js 14**: Latest framework with optimizations
+- **Static Generation**: Pre-built pages where possible
+- **Image Optimization**: Automatic image optimization
+- **Code Splitting**: Automatic code splitting
+- **Bundle Analysis**: Built-in bundle analyzer
+
+### Monitoring
+
+- **Console Logging**: Detailed development logs
+- **Error Boundaries**: Graceful error handling
+- **Performance Metrics**: Built-in performance monitoring
+- **TypeScript**: Compile-time error checking
 
 ## 🤝 Contributing
 
-1. Follow the existing code style
-2. Use TypeScript for all new code
-3. Add proper error handling
-4. Test components thoroughly
-5. Update documentation as needed
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
 ## 📄 License
 
-This project is part of the InvoiceCopilot application.
+This project is open source and available under the [MIT License](LICENSE).
+
+## 🆘 Support
+
+- **Issues**: [GitHub Issues](https://github.com/Handit-AI/invoice-copilot/issues)
+- **Documentation**: [Project Wiki](https://github.com/Handit-AI/invoice-copilot/wiki)
+- **Discussions**: [GitHub Discussions](https://github.com/Handit-AI/invoice-copilot/discussions)
+
+## 🙏 Acknowledgments
+
+- **Next.js**: React framework
+- **Tailwind CSS**: Utility-first CSS framework
+- **Recharts**: Chart library
+- **Framer Motion**: Animation library
+- **Lucide**: Icon library
+
+---
+
+**Built with ❤️ by the Invoice Copilot Team** 
